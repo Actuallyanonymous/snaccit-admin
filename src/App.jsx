@@ -319,6 +319,107 @@ const AllOrdersView = () => {
 };
 
 
+// --- NEW: Coupons Management View ---
+const CouponsView = () => {
+    const [coupons, setCoupons] = useState([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [newCoupon, setNewCoupon] = useState({
+        code: '',
+        type: 'fixed',
+        value: 0,
+        minOrderValue: 0,
+        expiryDate: ''
+    });
+
+    useEffect(() => {
+        const q = query(collection(db, "coupons"), orderBy("createdAt", "desc"));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            setCoupons(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+            setIsLoading(false);
+        });
+        return () => unsubscribe();
+    }, []);
+
+    const handleInputChange = (e) => {
+        const { name, value } = e.target;
+        setNewCoupon(prev => ({ ...prev, [name]: value }));
+    };
+
+    const handleCreateCoupon = async (e) => {
+        e.preventDefault();
+        if (!newCoupon.code || !newCoupon.expiryDate || newCoupon.value <= 0) {
+            alert("Please fill all fields correctly.");
+            return;
+        }
+        const couponId = newCoupon.code.toUpperCase();
+        const couponRef = doc(db, "coupons", couponId);
+        
+        await setDoc(couponRef, {
+            type: newCoupon.type,
+            value: Number(newCoupon.value),
+            minOrderValue: Number(newCoupon.minOrderValue),
+            isActive: true,
+            createdAt: serverTimestamp(),
+            expiryDate: new Date(newCoupon.expiryDate)
+        });
+        
+        setNewCoupon({ code: '', type: 'fixed', value: 0, minOrderValue: 0, expiryDate: '' });
+    };
+
+    const handleToggleActive = async (couponId, currentStatus) => {
+        const couponRef = doc(db, "coupons", couponId);
+        await updateDoc(couponRef, { isActive: !currentStatus });
+    };
+
+    return (
+        <div>
+            <h1 className="text-3xl font-bold text-gray-100">Coupon Management</h1>
+            <p className="text-gray-400 mt-2">Create and manage discount codes for users.</p>
+            
+            <div className="mt-8 bg-gray-800 p-6 rounded-lg shadow-lg">
+                <h2 className="text-xl font-bold mb-4">Create New Coupon</h2>
+                <form onSubmit={handleCreateCoupon} className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                    <input name="code" value={newCoupon.code} onChange={handleInputChange} placeholder="Coupon Code (e.g., WELCOME50)" className="bg-gray-700 border border-gray-600 rounded-lg p-2" required />
+                    <select name="type" value={newCoupon.type} onChange={handleInputChange} className="bg-gray-700 border border-gray-600 rounded-lg p-2">
+                        <option value="fixed">Fixed Amount (₹)</option>
+                        <option value="percentage">Percentage (%)</option>
+                    </select>
+                    <input name="value" type="number" value={newCoupon.value} onChange={handleInputChange} placeholder="Discount Value" className="bg-gray-700 border border-gray-600 rounded-lg p-2" required />
+                    <input name="minOrderValue" type="number" value={newCoupon.minOrderValue} onChange={handleInputChange} placeholder="Min Order Value (₹)" className="bg-gray-700 border border-gray-600 rounded-lg p-2" required />
+                    <input name="expiryDate" type="date" value={newCoupon.expiryDate} onChange={handleInputChange} className="bg-gray-700 border border-gray-600 rounded-lg p-2" required />
+                    <button type="submit" className="bg-green-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-green-700 flex items-center justify-center gap-2"><PlusCircle size={18}/>Create</button>
+                </form>
+            </div>
+
+            <div className="mt-8 bg-gray-800 p-6 rounded-lg shadow-lg">
+                <h2 className="text-xl font-bold mb-4">Existing Coupons</h2>
+                <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                        <thead><tr className="border-b border-gray-700"><th className="p-4">Code</th><th className="p-4">Type</th><th className="p-4">Value</th><th className="p-4">Min Order</th><th className="p-4">Expires</th><th className="p-4">Status</th></tr></thead>
+                        <tbody>
+                            {isLoading ? <tr><td colSpan="6" className="text-center p-4">Loading...</td></tr> : coupons.map(c => (
+                                <tr key={c.id} className="border-b border-gray-700">
+                                    <td className="p-4 font-mono font-bold">{c.id}</td>
+                                    <td className="p-4 capitalize">{c.type}</td>
+                                    <td className="p-4">{c.type === 'fixed' ? `₹${c.value}` : `${c.value}%`}</td>
+                                    <td className="p-4">₹{c.minOrderValue}</td>
+                                    <td className="p-4">{c.expiryDate.toDate().toLocaleDateString()}</td>
+                                    <td className="p-4">
+                                        <button onClick={() => handleToggleActive(c.id, c.isActive)} className="flex items-center gap-2">
+                                            {c.isActive ? <ToggleRight size={24} className="text-green-400"/> : <ToggleLeft size={24} className="text-gray-500"/>}
+                                            {c.isActive ? 'Active' : 'Inactive'}
+                                        </button>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 // --- Main App Component ---
 const App = () => {
     const [user, setUser] = useState(null);
