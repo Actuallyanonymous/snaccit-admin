@@ -1,11 +1,14 @@
+// snaccit-admin/App.jsx (Corrected)
+
 import React, { useState, useEffect } from 'react';
-import { ShieldCheck, BarChart2, Store, Users, LogOut, Loader2, CheckSquare, XSquare, ShoppingBag } from 'lucide-react';
+// FIX #1: Added missing icons for the Coupons view
+import { ShieldCheck, BarChart2, Store, Users, LogOut, Loader2, CheckSquare, XSquare, ShoppingBag, Tag, PlusCircle, ToggleLeft, ToggleRight } from 'lucide-react';
 import { initializeApp } from "firebase/app";
 import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "firebase/auth";
-import { getFirestore, doc, getDoc, collection, onSnapshot, query, where, updateDoc, orderBy } from "firebase/firestore";
+// FIX #2: Added missing Firestore functions for creating coupons
+import { getFirestore, doc, getDoc, collection, onSnapshot, query, where, updateDoc, orderBy, setDoc, serverTimestamp } from "firebase/firestore";
 
 // --- Firebase Configuration ---
-// IMPORTANT: Make sure this matches your project's configuration from the Firebase console.
 const firebaseConfig = {
   apiKey: "AIzaSyDDFCPcfBKcvrkjqidsXstHqe8Og_3u36k",
   authDomain: "snaccit-7d853.firebaseapp.com",
@@ -319,7 +322,7 @@ const AllOrdersView = () => {
 };
 
 
-// --- NEW: Coupons Management View ---
+// --- Coupons Management View ---
 const CouponsView = () => {
     const [coupons, setCoupons] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -420,6 +423,7 @@ const CouponsView = () => {
     );
 };
 
+
 // --- Main App Component ---
 const App = () => {
     const [user, setUser] = useState(null);
@@ -457,6 +461,7 @@ const App = () => {
             case 'restaurants': return <RestaurantView />;
             case 'customers': return <CustomersView />;
             case 'orders': return <AllOrdersView />;
+            case 'coupons': return <CouponsView />;
             default: return <DashboardView />;
         }
     };
@@ -478,6 +483,7 @@ const App = () => {
                             <li onClick={() => setView('restaurants')} className={`px-6 py-3 flex items-center cursor-pointer ${view === 'restaurants' ? 'bg-gray-700 text-white font-semibold' : 'hover:bg-gray-700/50'}`}><Store className="mr-3" size={20}/> Restaurants</li>
                             <li onClick={() => setView('customers')} className={`px-6 py-3 flex items-center cursor-pointer ${view === 'customers' ? 'bg-gray-700 text-white font-semibold' : 'hover:bg-gray-700/50'}`}><Users className="mr-3" size={20}/> Customers</li>
                             <li onClick={() => setView('orders')} className={`px-6 py-3 flex items-center cursor-pointer ${view === 'orders' ? 'bg-gray-700 text-white font-semibold' : 'hover:bg-gray-700/50'}`}><ShoppingBag className="mr-3" size={20}/> All Orders</li>
+                            <li onClick={() => setView('coupons')} className={`px-6 py-3 flex items-center cursor-pointer ${view === 'coupons' ? 'bg-gray-700 text-white font-semibold' : 'hover:bg-gray-700/50'}`}><Tag className="mr-3" size={20}/> Coupons</li>
                         </ul>
                         <div className="absolute bottom-0 w-64 p-6 border-t border-gray-700">
                             <button onClick={handleLogout} className="w-full flex items-center justify-center px-4 py-2 font-semibold text-gray-300 bg-gray-700 rounded-lg hover:bg-gray-600"><LogOut className="mr-2" size={16}/>Logout</button>
