@@ -1,11 +1,10 @@
 // snaccit-admin/App.jsx (Corrected)
 
 import React, { useState, useEffect } from 'react';
-// FIX #1: Added missing icons for the Coupons view
 import { ShieldCheck, BarChart2, Store, Users, LogOut, Loader2, CheckSquare, XSquare, ShoppingBag, Tag, PlusCircle, ToggleLeft, ToggleRight } from 'lucide-react';
 import { initializeApp } from "firebase/app";
 import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "firebase/auth";
-// FIX #2: Added missing Firestore functions for creating coupons
+// THE FIX IS ON THIS LINE: Added setDoc and serverTimestamp
 import { getFirestore, doc, getDoc, collection, onSnapshot, query, where, updateDoc, orderBy, setDoc, serverTimestamp } from "firebase/firestore";
 
 // --- Firebase Configuration ---
