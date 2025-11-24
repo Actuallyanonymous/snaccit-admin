@@ -1,10 +1,9 @@
-// snaccit-admin/App.jsx (Corrected)
+// snaccit-admin/src/App.jsx
 
 import React, { useState, useEffect } from 'react';
-import { ShieldCheck, BarChart2, Store, Users, LogOut, Loader2, CheckSquare, XSquare, ShoppingBag, Tag, PlusCircle, ToggleLeft, ToggleRight } from 'lucide-react';
+import { ShieldCheck, BarChart2, Store, Users, LogOut, Loader2, CheckSquare, XSquare, ShoppingBag, Tag, PlusCircle, ToggleLeft, ToggleRight, Eye, FileText, User, Phone, Mail } from 'lucide-react';
 import { initializeApp } from "firebase/app";
 import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "firebase/auth";
-// THE FIX IS ON THIS LINE: Added setDoc and serverTimestamp
 import { getFirestore, doc, getDoc, collection, onSnapshot, query, where, updateDoc, orderBy, setDoc, serverTimestamp } from "firebase/firestore";
 
 // --- Firebase Configuration ---
@@ -250,10 +249,126 @@ const CustomersView = () => {
     );
 };
 
-// --- All Orders View ---
+// --- [NEW] Admin Order Details Modal (Dark Mode) ---
+const AdminOrderDetailsModal = ({ isOpen, onClose, order }) => {
+    const [userInfo, setUserInfo] = useState(null);
+    const [isLoadingUser, setIsLoadingUser] = useState(false);
+
+    useEffect(() => {
+        if (isOpen && order && order.userId) {
+            setIsLoadingUser(true);
+            const userDocRef = doc(db, "users", order.userId);
+            getDoc(userDocRef).then(docSnap => {
+                if (docSnap.exists()) {
+                    setUserInfo(docSnap.data());
+                } else {
+                    setUserInfo({ username: 'Unknown User', mobile: 'N/A' });
+                }
+                setIsLoadingUser(false);
+            }).catch(err => {
+                console.error("Error fetching user details:", err);
+                setIsLoadingUser(false);
+            });
+        } else {
+            setUserInfo(null);
+        }
+    }, [isOpen, order]);
+
+    if (!isOpen || !order) return null;
+
+    return (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+            <div className="bg-gray-800 rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col border border-gray-700 text-gray-100">
+                <div className="p-5 border-b border-gray-700 flex justify-between items-center bg-gray-900 rounded-t-2xl">
+                    <h2 className="text-xl font-bold text-green-400 flex items-center gap-2">
+                        <FileText size={20}/> Order Details
+                    </h2>
+                    <button onClick={onClose} className="text-gray-400 hover:text-white"><XSquare size={24} /></button>
+                </div>
+                
+                <div className="p-6 overflow-y-auto space-y-6">
+                    {/* Customer Info Section */}
+                    <div className="bg-gray-700/50 p-4 rounded-xl border border-gray-600">
+                        <h3 className="text-sm font-bold text-blue-400 uppercase tracking-wider mb-3">Customer Information</h3>
+                        {isLoadingUser ? (
+                            <div className="flex items-center gap-2 text-gray-400"><Loader2 className="animate-spin" size={16}/> Loading customer info...</div>
+                        ) : (
+                            <div className="space-y-3">
+                                <div className="flex items-center gap-3">
+                                    <User size={18} className="text-gray-400" />
+                                    <div>
+                                        <p className="text-xs text-gray-500">Customer Name</p>
+                                        <p className="font-semibold text-gray-200">{userInfo?.username || 'Guest'}</p>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                    <Phone size={18} className="text-gray-400" />
+                                    <div>
+                                        <p className="text-xs text-gray-500">Mobile Number</p>
+                                        <p className="font-semibold text-gray-200">{userInfo?.mobile || userInfo?.phoneNumber || 'N/A'}</p>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                    <Mail size={18} className="text-gray-400" />
+                                    <div>
+                                        <p className="text-xs text-gray-500">Email / ID</p>
+                                        <p className="font-semibold text-gray-200">{userInfo?.email || order.userEmail || order.userId}</p>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Order Items Section */}
+                    <div>
+                        <h3 className="text-sm font-bold text-gray-300 uppercase tracking-wider mb-3">Items Ordered</h3>
+                        <div className="space-y-3">
+                            {order.items.map((item, idx) => (
+                                <div key={idx} className="flex justify-between items-start border-b border-gray-700 pb-3 last:border-0">
+                                    <div>
+                                        <p className="font-semibold text-gray-200">{item.quantity} x {item.name}</p>
+                                        <p className="text-xs text-gray-500">{item.size} {item.addons && item.addons.length > 0 && `+ ${item.addons.join(', ')}`}</p>
+                                    </div>
+                                    <p className="font-medium text-gray-300">₹{item.price.toFixed(2)}</p>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Financials Section */}
+                    <div className="bg-gray-900 p-4 rounded-xl">
+                        <div className="flex justify-between text-sm text-gray-400 mb-1">
+                            <span>Subtotal</span>
+                            <span>₹{order.subtotal?.toFixed(2) || order.total.toFixed(2)}</span>
+                        </div>
+                        {order.discount > 0 && (
+                             <div className="flex justify-between text-sm text-green-400 mb-1">
+                                <span>Discount {order.couponCode && `(${order.couponCode})`}</span>
+                                <span>- ₹{order.discount.toFixed(2)}</span>
+                            </div>
+                        )}
+                        <div className="flex justify-between text-lg font-bold text-white border-t border-gray-700 pt-2 mt-2">
+                            <span>Grand Total</span>
+                            <span>₹{order.total.toFixed(2)}</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div className="p-4 border-t border-gray-700 bg-gray-900 rounded-b-2xl">
+                     <button onClick={onClose} className="w-full bg-gray-700 text-gray-200 font-bold py-3 rounded-lg hover:bg-gray-600 transition-colors">
+                        Close
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// --- All Orders View (Updated) ---
 const AllOrdersView = () => {
     const [orders, setOrders] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [selectedOrder, setSelectedOrder] = useState(null); // Modal State
 
     useEffect(() => {
         const q = query(collection(db, "orders"), orderBy("createdAt", "desc"));
@@ -280,6 +395,13 @@ const AllOrdersView = () => {
 
     return (
         <div>
+            {/* Modal Injection */}
+            <AdminOrderDetailsModal 
+                isOpen={!!selectedOrder} 
+                onClose={() => setSelectedOrder(null)} 
+                order={selectedOrder} 
+            />
+
             <h1 className="text-3xl font-bold text-gray-100">All Orders</h1>
             <p className="text-gray-400 mt-2">A live feed of all orders across the platform.</p>
             <div className="mt-8 bg-gray-800 p-6 rounded-lg shadow-lg">
@@ -289,25 +411,40 @@ const AllOrdersView = () => {
                             <tr className="border-b border-gray-700">
                                 <th className="p-4">Date</th>
                                 <th className="p-4">Restaurant</th>
-                                <th className="p-4">Customer</th>
+                                <th className="p-4">Customer ID / Email</th>
                                 <th className="p-4">Total</th>
                                 <th className="p-4">Status</th>
+                                <th className="p-4">View</th>
                             </tr>
                         </thead>
                         <tbody>
                             {isLoading ? (
-                                <tr><td colSpan="5" className="text-center p-4">Loading...</td></tr>
+                                <tr><td colSpan="6" className="text-center p-4">Loading...</td></tr>
                             ) : (
                                 orders.map(order => (
                                     <tr key={order.id} className="border-b border-gray-700 hover:bg-gray-700/50">
-                                        <td className="p-4 text-gray-400">{order.createdAt}</td>
+                                        <td className="p-4 text-gray-400 text-sm">{order.createdAt}</td>
                                         <td className="p-4 font-medium">{order.restaurantName}</td>
-                                        <td className="p-4 text-gray-400">{order.userEmail}</td>
-                                        <td className="p-4 font-medium">₹{order.total.toFixed(2)}</td>
+                                        <td className="p-4 text-gray-400">
+                                            <div className="flex flex-col">
+                                                <span className="text-xs text-gray-500 uppercase">ID: {order.userId.slice(0,6)}...</span>
+                                                <span>{order.userEmail}</span>
+                                            </div>
+                                        </td>
+                                        <td className="p-4 font-medium text-green-400">₹{order.total.toFixed(2)}</td>
                                         <td className="p-4">
                                             <span className={`px-2 py-1 text-xs font-bold rounded-full capitalize ${statusColors[order.status] || 'bg-gray-700 text-gray-300'}`}>
                                                 {order.status}
                                             </span>
+                                        </td>
+                                        <td className="p-4">
+                                            <button 
+                                                onClick={() => setSelectedOrder(order)}
+                                                className="text-blue-400 hover:text-blue-300 p-2 rounded-full hover:bg-gray-700 transition-colors"
+                                                title="View Full Details"
+                                            >
+                                                <Eye size={20} />
+                                            </button>
                                         </td>
                                     </tr>
                                 ))
