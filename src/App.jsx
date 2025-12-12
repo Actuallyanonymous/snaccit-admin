@@ -1,10 +1,15 @@
 // snaccit-admin/src/App.jsx
 
-import React, { useState, useEffect } from 'react';
-import { ShieldCheck, BarChart2, Store, Users, LogOut, Loader2, CheckSquare, XSquare, ShoppingBag, Tag, PlusCircle, ToggleLeft, ToggleRight, Eye, FileText, User, Phone, Mail } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { 
+    ShieldCheck, BarChart2, Store, Users, LogOut, Loader2, 
+    CheckSquare, XSquare, ShoppingBag, Tag, PlusCircle, 
+    ToggleLeft, ToggleRight, Eye, FileText, User, Phone, Mail,
+    DollarSign, Calendar, ChevronRight, Download
+} from 'lucide-react';
 import { initializeApp } from "firebase/app";
 import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "firebase/auth";
-import { getFirestore, doc, getDoc, collection, onSnapshot, query, where, updateDoc, orderBy, setDoc, serverTimestamp } from "firebase/firestore";
+import { getFirestore, doc, getDoc, collection, onSnapshot, query, where, updateDoc, orderBy, setDoc, serverTimestamp, getDocs } from "firebase/firestore";
 
 // --- Firebase Configuration ---
 const firebaseConfig = {
@@ -111,17 +116,241 @@ const DashboardView = () => {
             <h1 className="text-3xl font-bold text-gray-100">Dashboard</h1>
             <p className="text-gray-400 mt-2">A high-level overview of your platform's activity.</p>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-8">
-                <div className="bg-gray-800 p-6 rounded-lg shadow-lg">
+                <div className="bg-gray-800 p-6 rounded-lg shadow-lg border border-gray-700">
                     <h3 className="text-gray-400 text-sm font-medium">Total Restaurants</h3>
                     <p className="text-3xl font-bold text-white mt-2">{stats.restaurants}</p>
                 </div>
-                <div className="bg-gray-800 p-6 rounded-lg shadow-lg">
+                <div className="bg-gray-800 p-6 rounded-lg shadow-lg border border-gray-700">
                     <h3 className="text-gray-400 text-sm font-medium">Total Users</h3>
                     <p className="text-3xl font-bold text-white mt-2">{stats.users}</p>
                 </div>
-                <div className="bg-gray-800 p-6 rounded-lg shadow-lg">
+                <div className="bg-gray-800 p-6 rounded-lg shadow-lg border border-gray-700">
                     <h3 className="text-gray-400 text-sm font-medium">Total Orders</h3>
                     <p className="text-3xl font-bold text-white mt-2">{stats.orders}</p>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// --- [NEW] Payouts & Reports View ---
+const PayoutsView = () => {
+    const [restaurants, setRestaurants] = useState([]);
+    const [selectedRestaurant, setSelectedRestaurant] = useState(null);
+    const [isLoading, setIsLoading] = useState(true);
+    const [isGenerating, setIsGenerating] = useState(false);
+    const [dateFilter, setDateFilter] = useState('last_week'); // 'last_week', 'last_month', 'all'
+    const [reportData, setReportData] = useState(null);
+
+    // 1. Fetch Restaurants
+    useEffect(() => {
+        const q = query(collection(db, "restaurants"), orderBy("name"));
+        const unsub = onSnapshot(q, (snapshot) => {
+            const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setRestaurants(list);
+            setIsLoading(false);
+        });
+        return () => unsub();
+    }, []);
+
+    // 2. Report Generation Logic
+    const generateReport = async (restaurantId, filterType) => {
+        setIsGenerating(true);
+        setReportData(null);
+        
+        try {
+            const now = new Date();
+            let startDate = new Date();
+            
+            if (filterType === 'last_week') {
+                startDate.setDate(now.getDate() - 7);
+            } else if (filterType === 'last_month') {
+                startDate.setMonth(now.getMonth() - 1);
+            } else {
+                startDate = new Date(0); // All time
+            }
+
+            // Query: Restaurant ID + Completed Orders
+            // Note: In Firestore, simple filtering in client is easier for small datasets if composite indexes aren't set up.
+            // We fetch all completed orders for this restaurant and filter by date in JS for flexibility.
+            const q = query(
+                collection(db, "orders"), 
+                where("restaurantId", "==", restaurantId),
+                where("status", "==", "completed") // Only pay for completed orders
+            );
+
+            const querySnapshot = await getDocs(q);
+            const orders = querySnapshot.docs
+                .map(doc => ({ id: doc.id, ...doc.data(), createdAt: doc.data().createdAt?.toDate() }))
+                .filter(order => order.createdAt >= startDate)
+                .sort((a, b) => b.createdAt - a.createdAt);
+
+            // Calculate Totals
+            let totalMenuValue = 0; // The actual price of food
+            let totalCustomerPaid = 0; // What hit your bank
+            let totalPointsValue = 0; // Snaccit Cost
+            let totalCouponValue = 0; // Snaccit/Restaurant Cost
+
+            orders.forEach(order => {
+                totalMenuValue += (order.subtotal || 0);
+                totalCustomerPaid += (order.total || 0);
+                totalPointsValue += (order.pointsValue || 0);
+                // Coupon calc: (subtotal - points - total) roughly, or use order.discount if available
+                // Better to rely on (subtotal - total - pointsValue) to find the coupon part specifically if not stored directly
+                const discountAmount = (order.subtotal - order.total) - (order.pointsValue || 0);
+                totalCouponValue += Math.max(0, discountAmount);
+            });
+
+            setReportData({
+                orders,
+                summary: {
+                    totalMenuValue,
+                    totalCustomerPaid,
+                    totalPointsValue,
+                    totalCouponValue,
+                    // PAYOUT LOGIC: Assuming Snaccit pays the full menu price to restaurant
+                    // i.e., Snaccit absorbs the cost of points and coupons.
+                    netPayout: totalMenuValue
+                },
+                dateRange: { start: startDate, end: now }
+            });
+
+        } catch (error) {
+            console.error("Error generating report:", error);
+            alert("Failed to generate report.");
+        } finally {
+            setIsGenerating(false);
+        }
+    };
+
+    // Trigger report when selection changes
+    useEffect(() => {
+        if (selectedRestaurant) {
+            generateReport(selectedRestaurant.id, dateFilter);
+        }
+    }, [selectedRestaurant, dateFilter]);
+
+    return (
+        <div className="h-full flex flex-col">
+            <h1 className="text-3xl font-bold text-gray-100 mb-2">Weekly Payouts & Reports</h1>
+            <p className="text-gray-400 mb-6">Calculate settlements for your restaurant partners.</p>
+
+            <div className="flex flex-col lg:flex-row gap-6 h-full min-h-0">
+                
+                {/* LEFT: Restaurant List */}
+                <div className="w-full lg:w-1/3 bg-gray-800 rounded-lg shadow-lg border border-gray-700 flex flex-col">
+                    <div className="p-4 border-b border-gray-700 bg-gray-900/50 rounded-t-lg">
+                        <h2 className="font-bold text-gray-200">Select Restaurant</h2>
+                    </div>
+                    <div className="overflow-y-auto p-2 flex-1">
+                        {isLoading ? <div className="p-4 text-center"><Loader2 className="animate-spin mx-auto"/></div> : 
+                         restaurants.map(r => (
+                            <div 
+                                key={r.id} 
+                                onClick={() => setSelectedRestaurant(r)}
+                                className={`p-4 rounded-lg cursor-pointer mb-2 transition-all flex justify-between items-center ${selectedRestaurant?.id === r.id ? 'bg-green-900/40 border border-green-600' : 'bg-gray-700/30 hover:bg-gray-700 border border-transparent'}`}
+                            >
+                                <div>
+                                    <h3 className="font-bold text-gray-200">{r.name}</h3>
+                                    <p className="text-xs text-gray-500">{r.id}</p>
+                                </div>
+                                <ChevronRight size={18} className={`text-gray-500 ${selectedRestaurant?.id === r.id ? 'text-green-400' : ''}`}/>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                {/* RIGHT: Report Details */}
+                <div className="w-full lg:w-2/3 bg-gray-800 rounded-lg shadow-lg border border-gray-700 flex flex-col min-h-[500px]">
+                    {!selectedRestaurant ? (
+                        <div className="flex flex-col items-center justify-center h-full text-gray-500">
+                            <Store size={48} className="mb-4 opacity-50"/>
+                            <p>Select a restaurant to view their payout report.</p>
+                        </div>
+                    ) : (
+                        <div className="flex flex-col h-full">
+                            {/* Toolbar */}
+                            <div className="p-4 border-b border-gray-700 flex flex-wrap gap-4 justify-between items-center bg-gray-900/50 rounded-t-lg">
+                                <div>
+                                    <h2 className="text-xl font-bold text-white">{selectedRestaurant.name}</h2>
+                                    <p className="text-xs text-green-400">FSSAI: {selectedRestaurant.fssaiLicense || 'N/A'}</p>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <select 
+                                        value={dateFilter} 
+                                        onChange={(e) => setDateFilter(e.target.value)}
+                                        className="bg-gray-700 text-white text-sm rounded-lg p-2 border border-gray-600 focus:ring-green-500 focus:border-green-500"
+                                    >
+                                        <option value="last_week">Last 7 Days</option>
+                                        <option value="last_month">Last 30 Days</option>
+                                        <option value="all">All Time</option>
+                                    </select>
+                                    <button className="bg-blue-600 hover:bg-blue-700 text-white p-2 rounded-lg" title="Export (Coming Soon)">
+                                        <Download size={20}/>
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Report Content */}
+                            {isGenerating ? (
+                                <div className="flex-1 flex items-center justify-center"><Loader2 className="animate-spin text-green-400" size={32}/></div>
+                            ) : reportData ? (
+                                <div className="flex-1 overflow-y-auto p-6">
+                                    
+                                    {/* Financial Summary Cards */}
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+                                        <div className="bg-gray-700/50 p-4 rounded-xl border border-gray-600">
+                                            <p className="text-xs text-gray-400 uppercase font-bold">Total Sales (Menu Value)</p>
+                                            <p className="text-2xl font-bold text-white mt-1">₹{reportData.summary.totalMenuValue.toFixed(2)}</p>
+                                        </div>
+                                        <div className="bg-gray-700/50 p-4 rounded-xl border border-gray-600">
+                                            <p className="text-xs text-gray-400 uppercase font-bold">Customer Paid</p>
+                                            <p className="text-2xl font-bold text-blue-400 mt-1">₹{reportData.summary.totalCustomerPaid.toFixed(2)}</p>
+                                        </div>
+                                        <div className="bg-gray-700/50 p-4 rounded-xl border border-gray-600">
+                                            <p className="text-xs text-gray-400 uppercase font-bold">Snaccit Funded (Pts+Cpn)</p>
+                                            <p className="text-2xl font-bold text-yellow-400 mt-1">₹{(reportData.summary.totalPointsValue + reportData.summary.totalCouponValue).toFixed(2)}</p>
+                                        </div>
+                                        <div className="bg-green-900/30 p-4 rounded-xl border border-green-500/50 relative overflow-hidden">
+                                            <div className="absolute top-0 right-0 p-2 opacity-10"><DollarSign size={48}/></div>
+                                            <p className="text-xs text-green-300 uppercase font-bold">Net Payout to Restaurant</p>
+                                            <p className="text-2xl font-black text-green-400 mt-1">₹{reportData.summary.netPayout.toFixed(2)}</p>
+                                        </div>
+                                    </div>
+
+                                    {/* Order Table */}
+                                    <h3 className="font-bold text-gray-300 mb-3 flex items-center gap-2"><FileText size={18}/> Order Breakdown ({reportData.orders.length})</h3>
+                                    <div className="bg-gray-900 rounded-lg overflow-hidden border border-gray-700">
+                                        <table className="w-full text-left text-sm">
+                                            <thead className="bg-gray-800 text-gray-400">
+                                                <tr>
+                                                    <th className="p-3">Date</th>
+                                                    <th className="p-3">Order ID</th>
+                                                    <th className="p-3 text-right">Menu Price</th>
+                                                    <th className="p-3 text-right">Cust. Paid</th>
+                                                    <th className="p-3 text-right">Discount</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-gray-700">
+                                                {reportData.orders.length > 0 ? reportData.orders.map(order => (
+                                                    <tr key={order.id} className="hover:bg-gray-800/50">
+                                                        <td className="p-3 text-gray-300">{order.createdAt?.toLocaleDateString()}</td>
+                                                        <td className="p-3 font-mono text-xs text-gray-500">{order.id.slice(0,8)}...</td>
+                                                        <td className="p-3 text-right font-medium text-gray-200">₹{order.subtotal}</td>
+                                                        <td className="p-3 text-right text-blue-300">₹{order.total}</td>
+                                                        <td className="p-3 text-right text-yellow-500">₹{(order.subtotal - order.total).toFixed(2)}</td>
+                                                    </tr>
+                                                )) : (
+                                                    <tr><td colSpan="5" className="p-6 text-center text-gray-500">No completed orders found in this period.</td></tr>
+                                                )}
+                                            </tbody>
+                                        </table>
+                                    </div>
+
+                                </div>
+                            ) : null}
+                        </div>
+                    )}
                 </div>
             </div>
         </div>
@@ -376,7 +605,7 @@ const AllOrdersView = () => {
             const allOrders = snapshot.docs.map(doc => ({ 
                 id: doc.id, 
                 ...doc.data(),
-                createdAt: doc.data().createdAt.toDate().toLocaleString()
+                createdAt: doc.data().createdAt?.toDate().toLocaleString()
             }));
             setOrders(allOrders);
             setIsLoading(false);
@@ -598,6 +827,7 @@ const App = () => {
             case 'customers': return <CustomersView />;
             case 'orders': return <AllOrdersView />;
             case 'coupons': return <CouponsView />;
+            case 'payouts': return <PayoutsView />; // New view
             default: return <DashboardView />;
         }
     };
@@ -616,9 +846,10 @@ const App = () => {
                         <div className="p-6 border-b border-gray-700"><h2 className="text-2xl font-bold text-green-400">Snaccit HQ</h2></div>
                         <ul className="py-4">
                             <li onClick={() => setView('dashboard')} className={`px-6 py-3 flex items-center cursor-pointer ${view === 'dashboard' ? 'bg-gray-700 text-white font-semibold' : 'hover:bg-gray-700/50'}`}><BarChart2 className="mr-3" size={20}/> Dashboard</li>
+                            <li onClick={() => setView('orders')} className={`px-6 py-3 flex items-center cursor-pointer ${view === 'orders' ? 'bg-gray-700 text-white font-semibold' : 'hover:bg-gray-700/50'}`}><ShoppingBag className="mr-3" size={20}/> All Orders</li>
+                            <li onClick={() => setView('payouts')} className={`px-6 py-3 flex items-center cursor-pointer ${view === 'payouts' ? 'bg-gray-700 text-white font-semibold' : 'hover:bg-gray-700/50'}`}><DollarSign className="mr-3" size={20}/> Payouts & Reports</li>
                             <li onClick={() => setView('restaurants')} className={`px-6 py-3 flex items-center cursor-pointer ${view === 'restaurants' ? 'bg-gray-700 text-white font-semibold' : 'hover:bg-gray-700/50'}`}><Store className="mr-3" size={20}/> Restaurants</li>
                             <li onClick={() => setView('customers')} className={`px-6 py-3 flex items-center cursor-pointer ${view === 'customers' ? 'bg-gray-700 text-white font-semibold' : 'hover:bg-gray-700/50'}`}><Users className="mr-3" size={20}/> Customers</li>
-                            <li onClick={() => setView('orders')} className={`px-6 py-3 flex items-center cursor-pointer ${view === 'orders' ? 'bg-gray-700 text-white font-semibold' : 'hover:bg-gray-700/50'}`}><ShoppingBag className="mr-3" size={20}/> All Orders</li>
                             <li onClick={() => setView('coupons')} className={`px-6 py-3 flex items-center cursor-pointer ${view === 'coupons' ? 'bg-gray-700 text-white font-semibold' : 'hover:bg-gray-700/50'}`}><Tag className="mr-3" size={20}/> Coupons</li>
                         </ul>
                         <div className="absolute bottom-0 w-64 p-6 border-t border-gray-700">
