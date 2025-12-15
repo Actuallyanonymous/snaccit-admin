@@ -133,7 +133,7 @@ const DashboardView = () => {
     );
 };
 
-// --- [UPDATED] Admin Order Details Modal (With Detailed Breakdown) ---
+// --- [UPDATED] Admin Order Details Modal ---
 const AdminOrderDetailsModal = ({ isOpen, onClose, order }) => {
     const [userInfo, setUserInfo] = useState(null);
     const [isLoadingUser, setIsLoadingUser] = useState(false);
@@ -160,7 +160,6 @@ const AdminOrderDetailsModal = ({ isOpen, onClose, order }) => {
 
     if (!isOpen || !order) return null;
 
-    // Calculate coupon value specifically if not stored directly
     const couponVal = (order.subtotal - order.total) - (order.pointsValue || 0);
     const finalCouponValue = Math.max(0, couponVal);
 
@@ -256,7 +255,7 @@ const AdminOrderDetailsModal = ({ isOpen, onClose, order }) => {
     );
 };
 
-// --- [UPDATED] Payouts & Reports View (CSV Fix) ---
+// --- [UPDATED] Payouts & Reports View (Detailed CSV) ---
 const PayoutsView = () => {
     const [restaurants, setRestaurants] = useState([]);
     const [selectedRestaurant, setSelectedRestaurant] = useState(null);
@@ -266,7 +265,6 @@ const PayoutsView = () => {
     const [reportData, setReportData] = useState(null);
     const [selectedPayoutOrder, setSelectedPayoutOrder] = useState(null); 
 
-    // MDR Configuration
     const MDR_PERCENTAGE = 2.301; 
 
     // 1. Fetch Restaurants
@@ -360,15 +358,36 @@ const PayoutsView = () => {
         }
     };
 
-    // --- CSV Download Handler ---
+    // --- UPDATED CSV DOWNLOADER (With Summary) ---
     const downloadCSV = () => {
         if (!reportData || !selectedRestaurant) return;
 
-        // 1. Define Headers
-        const headers = ["Date", "Order ID", "Menu Price", "Customer Paid", "Total Discount", "MDR Fee", "Net Payout"];
+        const summary = reportData.summary;
+        const startDate = reportData.dateRange.start.toLocaleDateString();
+        const endDate = reportData.dateRange.end.toLocaleDateString();
 
-        // 2. Build Rows
-        const rows = reportData.orders.map(order => [
+        // 1. Summary Section
+        const summaryRows = [
+            ["PAYOUT REPORT SUMMARY"],
+            ["Restaurant", selectedRestaurant.name],
+            ["Date Range", `${startDate} to ${endDate}`],
+            ["Generated On", new Date().toLocaleString()],
+            [],
+            ["Metric", "Amount (INR)"],
+            ["Total Sales (Gross Menu Value)", summary.totalMenuValue.toFixed(2)],
+            ["Total Customer Paid", summary.totalCustomerPaid.toFixed(2)],
+            ["Total Discounts (Pts + Coupons)", summary.totalDiscountsGiven.toFixed(2)],
+            ["Less: MDR Fee (" + MDR_PERCENTAGE + "%)", "-" + summary.totalMDRFee.toFixed(2)],
+            ["NET PAYOUT TO RESTAURANT", summary.totalNetPayout.toFixed(2)],
+            [],
+            ["TRANSACTION DETAILS"] // Spacer
+        ];
+
+        // 2. Table Headers
+        const tableHeaders = ["Date", "Order ID", "Menu Price", "Customer Paid", "Total Discount", "MDR Fee", "Net Payout"];
+
+        // 3. Order Rows
+        const orderRows = reportData.orders.map(order => [
             order.createdAt?.toLocaleDateString() || '',
             order.id,
             order.subtotal.toFixed(2),
@@ -378,13 +397,11 @@ const PayoutsView = () => {
             order.netPayout.toFixed(2)
         ]);
 
-        // 3. Construct CSV String
-        const csvContent = [
-            headers.join(","),
-            ...rows.map(row => row.join(","))
-        ].join("\n");
+        // 4. Combine parts
+        const csvArray = [...summaryRows, tableHeaders, ...orderRows];
+        const csvContent = csvArray.map(e => e.join(",")).join("\n");
 
-        // 4. Trigger Download
+        // 5. Trigger Download
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
