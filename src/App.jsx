@@ -256,7 +256,7 @@ const AdminOrderDetailsModal = ({ isOpen, onClose, order }) => {
     );
 };
 
-// --- [UPDATED] Payouts & Reports View ---
+// --- [UPDATED] Payouts & Reports View (CSV Fix) ---
 const PayoutsView = () => {
     const [restaurants, setRestaurants] = useState([]);
     const [selectedRestaurant, setSelectedRestaurant] = useState(null);
@@ -264,7 +264,7 @@ const PayoutsView = () => {
     const [isGenerating, setIsGenerating] = useState(false);
     const [dateFilter, setDateFilter] = useState('last_week'); 
     const [reportData, setReportData] = useState(null);
-    const [selectedPayoutOrder, setSelectedPayoutOrder] = useState(null); // For Modal
+    const [selectedPayoutOrder, setSelectedPayoutOrder] = useState(null); 
 
     // MDR Configuration
     const MDR_PERCENTAGE = 2.301; 
@@ -315,14 +315,13 @@ const PayoutsView = () => {
             let totalCustomerPaid = 0; 
             let totalMDRFee = 0;       
             let totalNetPayout = 0;
-            let totalDiscountsGiven = 0; // Total Snaccit funded
+            let totalDiscountsGiven = 0; 
 
             const detailedOrders = orders.map(order => {
                 const menuValue = order.subtotal || 0;
                 const custPaid = order.total || 0;
                 
                 // Calculate Total Discount (Points + Coupon)
-                // This is the difference between Menu Value and Customer Paid
                 const discount = Math.max(0, menuValue - custPaid);
                 
                 // MDR Calculation
@@ -359,6 +358,42 @@ const PayoutsView = () => {
         } finally {
             setIsGenerating(false);
         }
+    };
+
+    // --- CSV Download Handler ---
+    const downloadCSV = () => {
+        if (!reportData || !selectedRestaurant) return;
+
+        // 1. Define Headers
+        const headers = ["Date", "Order ID", "Menu Price", "Customer Paid", "Total Discount", "MDR Fee", "Net Payout"];
+
+        // 2. Build Rows
+        const rows = reportData.orders.map(order => [
+            order.createdAt?.toLocaleDateString() || '',
+            order.id,
+            order.subtotal.toFixed(2),
+            order.total.toFixed(2),
+            order.totalDiscount.toFixed(2),
+            order.mdrFee.toFixed(2),
+            order.netPayout.toFixed(2)
+        ]);
+
+        // 3. Construct CSV String
+        const csvContent = [
+            headers.join(","),
+            ...rows.map(row => row.join(","))
+        ].join("\n");
+
+        // 4. Trigger Download
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        const filename = `Payout_Report_${selectedRestaurant.name.replace(/ /g, '_')}_${new Date().toISOString().split('T')[0]}.csv`;
+        link.setAttribute("download", filename);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
     };
 
     useEffect(() => {
@@ -426,7 +461,12 @@ const PayoutsView = () => {
                                         <option value="last_month">Last 30 Days</option>
                                         <option value="all">All Time</option>
                                     </select>
-                                    <button className="bg-blue-600 hover:bg-blue-700 text-white p-2 rounded-lg flex items-center gap-2" title="Export">
+                                    <button 
+                                        onClick={downloadCSV}
+                                        disabled={!reportData || reportData.orders.length === 0}
+                                        className="bg-blue-600 hover:bg-blue-700 text-white p-2 rounded-lg flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed" 
+                                        title="Export"
+                                    >
                                         <Download size={18}/> <span className="hidden sm:inline">CSV</span>
                                     </button>
                                 </div>
