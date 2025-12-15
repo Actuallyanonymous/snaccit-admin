@@ -133,21 +133,23 @@ const DashboardView = () => {
     );
 };
 
-// --- [NEW] Payouts & Reports View ---
+// --- [UPDATED] Payouts & Reports View (With MDR Logic) ---
 const PayoutsView = () => {
     const [restaurants, setRestaurants] = useState([]);
     const [selectedRestaurant, setSelectedRestaurant] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
     const [isGenerating, setIsGenerating] = useState(false);
-    const [dateFilter, setDateFilter] = useState('last_week'); // 'last_week', 'last_month', 'all'
+    const [dateFilter, setDateFilter] = useState('last_week'); 
     const [reportData, setReportData] = useState(null);
+
+    // MDR Configuration
+    const MDR_PERCENTAGE = 2.301; // 1.95% Base + 18% GST
 
     // 1. Fetch Restaurants
     useEffect(() => {
         const q = query(collection(db, "restaurants"), orderBy("name"));
         const unsub = onSnapshot(q, (snapshot) => {
-            const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            setRestaurants(list);
+            setRestaurants(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
             setIsLoading(false);
         });
         return () => unsub();
@@ -162,55 +164,66 @@ const PayoutsView = () => {
             const now = new Date();
             let startDate = new Date();
             
-            if (filterType === 'last_week') {
-                startDate.setDate(now.getDate() - 7);
-            } else if (filterType === 'last_month') {
-                startDate.setMonth(now.getMonth() - 1);
-            } else {
-                startDate = new Date(0); // All time
-            }
+            // Set Start Date based on filter
+            if (filterType === 'last_week') startDate.setDate(now.getDate() - 7);
+            else if (filterType === 'last_month') startDate.setMonth(now.getMonth() - 1);
+            else startDate = new Date(0); // All time
 
-            // Query: Restaurant ID + Completed Orders
-            // Note: In Firestore, simple filtering in client is easier for small datasets if composite indexes aren't set up.
-            // We fetch all completed orders for this restaurant and filter by date in JS for flexibility.
+            // Fetch completed orders
             const q = query(
                 collection(db, "orders"), 
                 where("restaurantId", "==", restaurantId),
-                where("status", "==", "completed") // Only pay for completed orders
+                where("status", "==", "completed")
             );
 
             const querySnapshot = await getDocs(q);
-            const orders = querySnapshot.docs
-                .map(doc => ({ id: doc.id, ...doc.data(), createdAt: doc.data().createdAt?.toDate() }))
+            
+            // Process Orders
+            const rawOrders = querySnapshot.docs.map(doc => ({ 
+                id: doc.id, 
+                ...doc.data(), 
+                createdAt: doc.data().createdAt?.toDate() 
+            }));
+
+            // Filter by date & Sort
+            const orders = rawOrders
                 .filter(order => order.createdAt >= startDate)
                 .sort((a, b) => b.createdAt - a.createdAt);
 
-            // Calculate Totals
-            let totalMenuValue = 0; // The actual price of food
-            let totalCustomerPaid = 0; // What hit your bank
-            let totalPointsValue = 0; // Snaccit Cost
-            let totalCouponValue = 0; // Snaccit/Restaurant Cost
+            // --- CALCULATE FINANCIALS ---
+            let totalMenuValue = 0;    // Value of food sent out
+            let totalCustomerPaid = 0; // Money received in bank
+            let totalMDRFee = 0;       // Payment Gateway cost
+            let totalNetPayout = 0;    // What you owe restaurant
 
-            orders.forEach(order => {
-                totalMenuValue += (order.subtotal || 0);
-                totalCustomerPaid += (order.total || 0);
-                totalPointsValue += (order.pointsValue || 0);
-                // Coupon calc: (subtotal - points - total) roughly, or use order.discount if available
-                // Better to rely on (subtotal - total - pointsValue) to find the coupon part specifically if not stored directly
-                const discountAmount = (order.subtotal - order.total) - (order.pointsValue || 0);
-                totalCouponValue += Math.max(0, discountAmount);
+            const detailedOrders = orders.map(order => {
+                const menuValue = order.subtotal || 0;
+                const custPaid = order.total || 0;
+                
+                // Calculate MDR on what hit the gateway (Customer Paid)
+                // If paid fully by points (0), MDR is 0.
+                const mdrFee = (custPaid * MDR_PERCENTAGE) / 100;
+                
+                // Payout = (Menu Price) - (Gateway Fee)
+                // Note: This assumes Snaccit covers the cost of Points/Coupons.
+                const netPayout = menuValue - mdrFee;
+
+                totalMenuValue += menuValue;
+                totalCustomerPaid += custPaid;
+                totalMDRFee += mdrFee;
+                totalNetPayout += netPayout;
+
+                return { ...order, mdrFee, netPayout };
             });
 
             setReportData({
-                orders,
+                orders: detailedOrders,
                 summary: {
                     totalMenuValue,
                     totalCustomerPaid,
-                    totalPointsValue,
-                    totalCouponValue,
-                    // PAYOUT LOGIC: Assuming Snaccit pays the full menu price to restaurant
-                    // i.e., Snaccit absorbs the cost of points and coupons.
-                    netPayout: totalMenuValue
+                    totalMDRFee,
+                    totalNetPayout,
+                    orderCount: detailedOrders.length
                 },
                 dateRange: { start: startDate, end: now }
             });
@@ -232,15 +245,15 @@ const PayoutsView = () => {
 
     return (
         <div className="h-full flex flex-col">
-            <h1 className="text-3xl font-bold text-gray-100 mb-2">Weekly Payouts & Reports</h1>
-            <p className="text-gray-400 mb-6">Calculate settlements for your restaurant partners.</p>
+            <h1 className="text-3xl font-bold text-gray-100 mb-2">Settlement Reports</h1>
+            <p className="text-gray-400 mb-6">Weekly payouts with MDR deduction ({MDR_PERCENTAGE}%).</p>
 
             <div className="flex flex-col lg:flex-row gap-6 h-full min-h-0">
                 
                 {/* LEFT: Restaurant List */}
-                <div className="w-full lg:w-1/3 bg-gray-800 rounded-lg shadow-lg border border-gray-700 flex flex-col">
+                <div className="w-full lg:w-1/4 bg-gray-800 rounded-lg shadow-lg border border-gray-700 flex flex-col">
                     <div className="p-4 border-b border-gray-700 bg-gray-900/50 rounded-t-lg">
-                        <h2 className="font-bold text-gray-200">Select Restaurant</h2>
+                        <h2 className="font-bold text-gray-200">Restaurants</h2>
                     </div>
                     <div className="overflow-y-auto p-2 flex-1">
                         {isLoading ? <div className="p-4 text-center"><Loader2 className="animate-spin mx-auto"/></div> : 
@@ -250,10 +263,7 @@ const PayoutsView = () => {
                                 onClick={() => setSelectedRestaurant(r)}
                                 className={`p-4 rounded-lg cursor-pointer mb-2 transition-all flex justify-between items-center ${selectedRestaurant?.id === r.id ? 'bg-green-900/40 border border-green-600' : 'bg-gray-700/30 hover:bg-gray-700 border border-transparent'}`}
                             >
-                                <div>
-                                    <h3 className="font-bold text-gray-200">{r.name}</h3>
-                                    <p className="text-xs text-gray-500">{r.id}</p>
-                                </div>
+                                <span className="font-bold text-gray-200 truncate">{r.name}</span>
                                 <ChevronRight size={18} className={`text-gray-500 ${selectedRestaurant?.id === r.id ? 'text-green-400' : ''}`}/>
                             </div>
                         ))}
@@ -261,11 +271,11 @@ const PayoutsView = () => {
                 </div>
 
                 {/* RIGHT: Report Details */}
-                <div className="w-full lg:w-2/3 bg-gray-800 rounded-lg shadow-lg border border-gray-700 flex flex-col min-h-[500px]">
+                <div className="w-full lg:w-3/4 bg-gray-800 rounded-lg shadow-lg border border-gray-700 flex flex-col min-h-[500px]">
                     {!selectedRestaurant ? (
                         <div className="flex flex-col items-center justify-center h-full text-gray-500">
                             <Store size={48} className="mb-4 opacity-50"/>
-                            <p>Select a restaurant to view their payout report.</p>
+                            <p>Select a restaurant to calculate payouts.</p>
                         </div>
                     ) : (
                         <div className="flex flex-col h-full">
@@ -273,7 +283,7 @@ const PayoutsView = () => {
                             <div className="p-4 border-b border-gray-700 flex flex-wrap gap-4 justify-between items-center bg-gray-900/50 rounded-t-lg">
                                 <div>
                                     <h2 className="text-xl font-bold text-white">{selectedRestaurant.name}</h2>
-                                    <p className="text-xs text-green-400">FSSAI: {selectedRestaurant.fssaiLicense || 'N/A'}</p>
+                                    <p className="text-xs text-green-400">MDR Rate Applied: {MDR_PERCENTAGE}%</p>
                                 </div>
                                 <div className="flex items-center gap-2">
                                     <select 
@@ -285,8 +295,8 @@ const PayoutsView = () => {
                                         <option value="last_month">Last 30 Days</option>
                                         <option value="all">All Time</option>
                                     </select>
-                                    <button className="bg-blue-600 hover:bg-blue-700 text-white p-2 rounded-lg" title="Export (Coming Soon)">
-                                        <Download size={20}/>
+                                    <button className="bg-blue-600 hover:bg-blue-700 text-white p-2 rounded-lg flex items-center gap-2" title="Export">
+                                        <Download size={18}/> <span className="hidden sm:inline">CSV</span>
                                     </button>
                                 </div>
                             </div>
@@ -297,55 +307,76 @@ const PayoutsView = () => {
                             ) : reportData ? (
                                 <div className="flex-1 overflow-y-auto p-6">
                                     
-                                    {/* Financial Summary Cards */}
-                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+                                    {/* 1. Summary Cards */}
+                                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
                                         <div className="bg-gray-700/50 p-4 rounded-xl border border-gray-600">
-                                            <p className="text-xs text-gray-400 uppercase font-bold">Total Sales (Menu Value)</p>
-                                            <p className="text-2xl font-bold text-white mt-1">₹{reportData.summary.totalMenuValue.toFixed(2)}</p>
+                                            <p className="text-xs text-gray-400 uppercase font-bold">Total Orders</p>
+                                            <p className="text-2xl font-bold text-white mt-1">{reportData.summary.orderCount}</p>
                                         </div>
                                         <div className="bg-gray-700/50 p-4 rounded-xl border border-gray-600">
-                                            <p className="text-xs text-gray-400 uppercase font-bold">Customer Paid</p>
-                                            <p className="text-2xl font-bold text-blue-400 mt-1">₹{reportData.summary.totalCustomerPaid.toFixed(2)}</p>
+                                            <p className="text-xs text-gray-400 uppercase font-bold">Menu Value (Gross)</p>
+                                            <p className="text-2xl font-bold text-blue-400 mt-1">₹{reportData.summary.totalMenuValue.toFixed(2)}</p>
                                         </div>
-                                        <div className="bg-gray-700/50 p-4 rounded-xl border border-gray-600">
-                                            <p className="text-xs text-gray-400 uppercase font-bold">Snaccit Funded (Pts+Cpn)</p>
-                                            <p className="text-2xl font-bold text-yellow-400 mt-1">₹{(reportData.summary.totalPointsValue + reportData.summary.totalCouponValue).toFixed(2)}</p>
+                                        <div className="bg-red-900/20 p-4 rounded-xl border border-red-500/30">
+                                            <p className="text-xs text-red-300 uppercase font-bold">Total MDR Deducted</p>
+                                            <p className="text-2xl font-bold text-red-400 mt-1">- ₹{reportData.summary.totalMDRFee.toFixed(2)}</p>
                                         </div>
                                         <div className="bg-green-900/30 p-4 rounded-xl border border-green-500/50 relative overflow-hidden">
                                             <div className="absolute top-0 right-0 p-2 opacity-10"><DollarSign size={48}/></div>
-                                            <p className="text-xs text-green-300 uppercase font-bold">Net Payout to Restaurant</p>
-                                            <p className="text-2xl font-black text-green-400 mt-1">₹{reportData.summary.netPayout.toFixed(2)}</p>
+                                            <p className="text-xs text-green-300 uppercase font-bold">Net Payout</p>
+                                            <p className="text-2xl font-black text-green-400 mt-1">₹{reportData.summary.totalNetPayout.toFixed(2)}</p>
                                         </div>
                                     </div>
 
-                                    {/* Order Table */}
-                                    <h3 className="font-bold text-gray-300 mb-3 flex items-center gap-2"><FileText size={18}/> Order Breakdown ({reportData.orders.length})</h3>
-                                    <div className="bg-gray-900 rounded-lg overflow-hidden border border-gray-700">
+                                    {/* 2. Detailed Table */}
+                                    <h3 className="font-bold text-gray-300 mb-3 flex items-center gap-2">
+                                        <FileText size={18}/> Transaction Details
+                                    </h3>
+                                    <div className="bg-gray-900 rounded-lg overflow-hidden border border-gray-700 shadow-md">
                                         <table className="w-full text-left text-sm">
-                                            <thead className="bg-gray-800 text-gray-400">
+                                            <thead className="bg-gray-800 text-gray-400 font-bold uppercase text-xs tracking-wider">
                                                 <tr>
                                                     <th className="p-3">Date</th>
                                                     <th className="p-3">Order ID</th>
-                                                    <th className="p-3 text-right">Menu Price</th>
+                                                    <th className="p-3 text-right text-gray-300">Menu Price</th>
                                                     <th className="p-3 text-right">Cust. Paid</th>
-                                                    <th className="p-3 text-right">Discount</th>
+                                                    <th className="p-3 text-right text-yellow-500" title="Points + Coupons">Pts+Cpn</th>
+                                                    <th className="p-3 text-right text-red-400">MDR ({MDR_PERCENTAGE}%)</th>
+                                                    <th className="p-3 text-right text-green-400 font-bold">Net Payout</th>
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-gray-700">
                                                 {reportData.orders.length > 0 ? reportData.orders.map(order => (
-                                                    <tr key={order.id} className="hover:bg-gray-800/50">
-                                                        <td className="p-3 text-gray-300">{order.createdAt?.toLocaleDateString()}</td>
+                                                    <tr key={order.id} className="hover:bg-gray-800/50 transition-colors">
+                                                        <td className="p-3 text-gray-400 font-mono">{order.createdAt?.toLocaleDateString()}</td>
                                                         <td className="p-3 font-mono text-xs text-gray-500">{order.id.slice(0,8)}...</td>
+                                                        
+                                                        {/* A: Menu Value */}
                                                         <td className="p-3 text-right font-medium text-gray-200">₹{order.subtotal}</td>
+                                                        
+                                                        {/* B: Customer Paid */}
                                                         <td className="p-3 text-right text-blue-300">₹{order.total}</td>
-                                                        <td className="p-3 text-right text-yellow-500">₹{(order.subtotal - order.total).toFixed(2)}</td>
+                                                        
+                                                        {/* C: Discount (Snaccit Funded) */}
+                                                        <td className="p-3 text-right text-yellow-600">
+                                                            ₹{(order.subtotal - order.total).toFixed(2)}
+                                                        </td>
+                                                        
+                                                        {/* D: MDR Fee */}
+                                                        <td className="p-3 text-right text-red-400">- ₹{order.mdrFee.toFixed(2)}</td>
+                                                        
+                                                        {/* E: Net = A - D */}
+                                                        <td className="p-3 text-right font-bold text-green-400 bg-green-900/10">
+                                                            ₹{order.netPayout.toFixed(2)}
+                                                        </td>
                                                     </tr>
                                                 )) : (
-                                                    <tr><td colSpan="5" className="p-6 text-center text-gray-500">No completed orders found in this period.</td></tr>
+                                                    <tr><td colSpan="7" className="p-8 text-center text-gray-500 italic">No transactions found for this period.</td></tr>
                                                 )}
                                             </tbody>
                                         </table>
                                     </div>
+                                    <p className="text-xs text-gray-500 mt-3 text-right">* Net Payout = Menu Price - (2.301% of Customer Paid Amount)</p>
 
                                 </div>
                             ) : null}
