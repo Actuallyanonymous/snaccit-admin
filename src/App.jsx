@@ -5,7 +5,7 @@ import {
     ShieldCheck, BarChart2, Store, Users, LogOut, Loader2, 
     CheckSquare, XSquare, ShoppingBag, Tag, PlusCircle, 
     ToggleLeft, ToggleRight, Eye, FileText, User, Phone, Mail,
-    DollarSign, Calendar, ChevronRight, Download
+    DollarSign, Calendar, ChevronRight, Download, Inbox
 } from 'lucide-react';
 import { initializeApp } from "firebase/app";
 import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "firebase/auth";
@@ -888,6 +888,77 @@ const CouponsView = () => {
     );
 };
 
+// --- Messages / Inbox View ---
+const MessagesView = () => {
+    const [messages, setMessages] = useState([]);
+    const [isLoading, setIsLoading] = useState(true);
+
+    useEffect(() => {
+        // Query the new collection
+        const q = query(collection(db, "contact_messages"), orderBy("createdAt", "desc"));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            setMessages(snapshot.docs.map(doc => ({ 
+                id: doc.id, 
+                ...doc.data(),
+                // Safety check for date in case serverTimestamp hasn't processed yet
+                createdAt: doc.data().createdAt ? doc.data().createdAt.toDate() : new Date() 
+            })));
+            setIsLoading(false);
+        });
+        return () => unsubscribe();
+    }, []);
+
+    const markAsRead = async (id, currentStatus) => {
+        if (currentStatus !== 'read') {
+            await updateDoc(doc(db, "contact_messages", id), { status: 'read' });
+        }
+    };
+
+    return (
+        <div>
+            <h1 className="text-3xl font-bold text-gray-100">Inbox</h1>
+            <p className="text-gray-400 mt-2">Messages from the Contact Us page.</p>
+
+            <div className="mt-8 space-y-4">
+                {isLoading ? (
+                    <div className="text-center p-8"><Loader2 className="animate-spin text-green-400 mx-auto" /></div>
+                ) : messages.length === 0 ? (
+                    <div className="bg-gray-800 p-12 rounded-lg text-center border border-gray-700">
+                        <Inbox size={48} className="mx-auto text-gray-600 mb-4"/>
+                        <p className="text-gray-400">No messages yet.</p>
+                    </div>
+                ) : (
+                    messages.map(msg => (
+                        <div 
+                            key={msg.id} 
+                            onClick={() => markAsRead(msg.id, msg.status)}
+                            className={`bg-gray-800 p-6 rounded-lg border transition-all cursor-pointer ${msg.status === 'unread' ? 'border-l-4 border-l-green-500 border-gray-700 shadow-lg' : 'border-gray-700 opacity-80'}`}
+                        >
+                            <div className="flex justify-between items-start mb-2">
+                                <div>
+                                    <h3 className={`text-lg font-bold ${msg.status === 'unread' ? 'text-white' : 'text-gray-300'}`}>
+                                        {msg.subject}
+                                    </h3>
+                                    <p className="text-sm text-green-400">{msg.name} <span className="text-gray-500">&lt;{msg.email}&gt;</span></p>
+                                </div>
+                                <span className="text-xs text-gray-500">{msg.createdAt.toLocaleString()}</span>
+                            </div>
+                            <p className="text-gray-300 mt-2 bg-gray-900/50 p-3 rounded-lg border border-gray-700/50">
+                                {msg.message}
+                            </p>
+                            {msg.status === 'unread' && (
+                                <div className="mt-2 text-right">
+                                    <span className="text-xs font-bold text-green-500 bg-green-500/10 px-2 py-1 rounded">NEW MESSAGE</span>
+                                </div>
+                            )}
+                        </div>
+                    ))
+                )}
+            </div>
+        </div>
+    );
+};
+
 
 // --- Main App Component ---
 const App = () => {
@@ -927,7 +998,8 @@ const App = () => {
             case 'customers': return <CustomersView />;
             case 'orders': return <AllOrdersView />;
             case 'coupons': return <CouponsView />;
-            case 'payouts': return <PayoutsView />; // New view
+            case 'payouts': return <PayoutsView />; 
+            case 'messages': return <MessagesView />;
             default: return <DashboardView />;
         }
     };
@@ -951,6 +1023,9 @@ const App = () => {
                             <li onClick={() => setView('restaurants')} className={`px-6 py-3 flex items-center cursor-pointer ${view === 'restaurants' ? 'bg-gray-700 text-white font-semibold' : 'hover:bg-gray-700/50'}`}><Store className="mr-3" size={20}/> Restaurants</li>
                             <li onClick={() => setView('customers')} className={`px-6 py-3 flex items-center cursor-pointer ${view === 'customers' ? 'bg-gray-700 text-white font-semibold' : 'hover:bg-gray-700/50'}`}><Users className="mr-3" size={20}/> Customers</li>
                             <li onClick={() => setView('coupons')} className={`px-6 py-3 flex items-center cursor-pointer ${view === 'coupons' ? 'bg-gray-700 text-white font-semibold' : 'hover:bg-gray-700/50'}`}><Tag className="mr-3" size={20}/> Coupons</li>
+                            <li onClick={() => setView('messages')} className={`px-6 py-3 flex items-center cursor-pointer ${view === 'messages' ? 'bg-gray-700 text-white font-semibold' : 'hover:bg-gray-700/50'}`}>
+        <Inbox className="mr-3" size={20}/> Inbox
+    </li>
                         </ul>
                         <div className="absolute bottom-0 w-64 p-6 border-t border-gray-700">
                             <button onClick={handleLogout} className="w-full flex items-center justify-center px-4 py-2 font-semibold text-gray-300 bg-gray-700 rounded-lg hover:bg-gray-600"><LogOut className="mr-2" size={16}/>Logout</button>
