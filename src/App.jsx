@@ -43,7 +43,7 @@ const AdminLoginPage = () => {
             const userDoc = await getDoc(userDocRef);
 
             if (userDoc.exists() && userDoc.data().role === 'admin') {
-                // Success! The onAuthStateChanged listener will handle the redirect.
+                // Success!
             } else {
                 await signOut(auth);
                 setError("Access Denied. You do not have admin privileges.");
@@ -133,7 +133,130 @@ const DashboardView = () => {
     );
 };
 
-// --- [UPDATED] Payouts & Reports View (With MDR Logic) ---
+// --- [UPDATED] Admin Order Details Modal (With Detailed Breakdown) ---
+const AdminOrderDetailsModal = ({ isOpen, onClose, order }) => {
+    const [userInfo, setUserInfo] = useState(null);
+    const [isLoadingUser, setIsLoadingUser] = useState(false);
+
+    useEffect(() => {
+        if (isOpen && order && order.userId) {
+            setIsLoadingUser(true);
+            const userDocRef = doc(db, "users", order.userId);
+            getDoc(userDocRef).then(docSnap => {
+                if (docSnap.exists()) {
+                    setUserInfo(docSnap.data());
+                } else {
+                    setUserInfo({ username: 'Unknown User', mobile: 'N/A' });
+                }
+                setIsLoadingUser(false);
+            }).catch(err => {
+                console.error("Error fetching user details:", err);
+                setIsLoadingUser(false);
+            });
+        } else {
+            setUserInfo(null);
+        }
+    }, [isOpen, order]);
+
+    if (!isOpen || !order) return null;
+
+    // Calculate coupon value specifically if not stored directly
+    const couponVal = (order.subtotal - order.total) - (order.pointsValue || 0);
+    const finalCouponValue = Math.max(0, couponVal);
+
+    return (
+        <div className="fixed inset-0 bg-black/80 z-[100] flex items-center justify-center p-4 backdrop-blur-sm">
+            <div className="bg-gray-800 rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col border border-gray-700 text-gray-100">
+                <div className="p-5 border-b border-gray-700 flex justify-between items-center bg-gray-900 rounded-t-2xl">
+                    <h2 className="text-xl font-bold text-green-400 flex items-center gap-2">
+                        <FileText size={20}/> Order #{order.id.slice(-6).toUpperCase()}
+                    </h2>
+                    <button onClick={onClose} className="text-gray-400 hover:text-white"><XSquare size={24} /></button>
+                </div>
+                
+                <div className="p-6 overflow-y-auto space-y-6">
+                    {/* Customer Info Section */}
+                    <div className="bg-gray-700/50 p-4 rounded-xl border border-gray-600">
+                        <h3 className="text-sm font-bold text-blue-400 uppercase tracking-wider mb-3">Customer Information</h3>
+                        {isLoadingUser ? (
+                            <div className="flex items-center gap-2 text-gray-400"><Loader2 className="animate-spin" size={16}/> Loading customer info...</div>
+                        ) : (
+                            <div className="space-y-2 text-sm">
+                                <div className="flex justify-between border-b border-gray-600 pb-1">
+                                    <span className="text-gray-400">Name</span>
+                                    <span className="font-semibold text-gray-200">{userInfo?.username || 'Guest'}</span>
+                                </div>
+                                <div className="flex justify-between border-b border-gray-600 pb-1">
+                                    <span className="text-gray-400">Phone</span>
+                                    <span className="font-semibold text-gray-200">{userInfo?.mobile || userInfo?.phoneNumber || 'N/A'}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                    <span className="text-gray-400">Email</span>
+                                    <span className="font-semibold text-gray-200">{userInfo?.email || order.userEmail || 'N/A'}</span>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Order Items Section */}
+                    <div>
+                        <h3 className="text-sm font-bold text-gray-300 uppercase tracking-wider mb-3">Items Ordered</h3>
+                        <div className="space-y-3">
+                            {order.items.map((item, idx) => (
+                                <div key={idx} className="flex justify-between items-start border-b border-gray-700 pb-3 last:border-0">
+                                    <div>
+                                        <p className="font-semibold text-gray-200">{item.quantity} x {item.name}</p>
+                                        <p className="text-xs text-gray-500">{item.size} {item.addons && item.addons.length > 0 && `+ ${item.addons.join(', ')}`}</p>
+                                    </div>
+                                    <p className="font-medium text-gray-300">₹{item.price.toFixed(2)}</p>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Financial Breakdown Section (Detailed) */}
+                    <div className="bg-gray-900 p-4 rounded-xl border border-gray-700">
+                        <h3 className="text-sm font-bold text-green-400 uppercase tracking-wider mb-3">Payment Breakdown</h3>
+                        
+                        <div className="flex justify-between text-sm text-gray-300 mb-2">
+                            <span>Subtotal (Menu Value)</span>
+                            <span className="font-medium">₹{order.subtotal?.toFixed(2) || order.total.toFixed(2)}</span>
+                        </div>
+
+                        {/* Coupon Row */}
+                        {finalCouponValue > 0 && (
+                             <div className="flex justify-between text-sm text-yellow-500 mb-1">
+                                <span>Coupon Applied {order.couponCode && `(${order.couponCode})`}</span>
+                                <span>- ₹{finalCouponValue.toFixed(2)}</span>
+                            </div>
+                        )}
+
+                        {/* Points Row */}
+                        {order.pointsValue > 0 && (
+                             <div className="flex justify-between text-sm text-amber-500 mb-1">
+                                <span>Points Redeemed ({order.pointsRedeemed} pts)</span>
+                                <span>- ₹{order.pointsValue.toFixed(2)}</span>
+                            </div>
+                        )}
+
+                        <div className="flex justify-between text-lg font-bold text-white border-t border-gray-600 pt-3 mt-2">
+                            <span>Customer Paid</span>
+                            <span className="text-blue-400">₹{order.total.toFixed(2)}</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div className="p-4 border-t border-gray-700 bg-gray-900 rounded-b-2xl">
+                     <button onClick={onClose} className="w-full bg-gray-700 text-gray-200 font-bold py-3 rounded-lg hover:bg-gray-600 transition-colors">
+                        Close Details
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// --- [UPDATED] Payouts & Reports View ---
 const PayoutsView = () => {
     const [restaurants, setRestaurants] = useState([]);
     const [selectedRestaurant, setSelectedRestaurant] = useState(null);
@@ -141,9 +264,10 @@ const PayoutsView = () => {
     const [isGenerating, setIsGenerating] = useState(false);
     const [dateFilter, setDateFilter] = useState('last_week'); 
     const [reportData, setReportData] = useState(null);
+    const [selectedPayoutOrder, setSelectedPayoutOrder] = useState(null); // For Modal
 
     // MDR Configuration
-    const MDR_PERCENTAGE = 2.301; // 1.95% Base + 18% GST
+    const MDR_PERCENTAGE = 2.301; 
 
     // 1. Fetch Restaurants
     useEffect(() => {
@@ -164,12 +288,10 @@ const PayoutsView = () => {
             const now = new Date();
             let startDate = new Date();
             
-            // Set Start Date based on filter
             if (filterType === 'last_week') startDate.setDate(now.getDate() - 7);
             else if (filterType === 'last_month') startDate.setMonth(now.getMonth() - 1);
-            else startDate = new Date(0); // All time
+            else startDate = new Date(0); 
 
-            // Fetch completed orders
             const q = query(
                 collection(db, "orders"), 
                 where("restaurantId", "==", restaurantId),
@@ -178,42 +300,44 @@ const PayoutsView = () => {
 
             const querySnapshot = await getDocs(q);
             
-            // Process Orders
             const rawOrders = querySnapshot.docs.map(doc => ({ 
                 id: doc.id, 
                 ...doc.data(), 
                 createdAt: doc.data().createdAt?.toDate() 
             }));
 
-            // Filter by date & Sort
             const orders = rawOrders
                 .filter(order => order.createdAt >= startDate)
                 .sort((a, b) => b.createdAt - a.createdAt);
 
             // --- CALCULATE FINANCIALS ---
-            let totalMenuValue = 0;    // Value of food sent out
-            let totalCustomerPaid = 0; // Money received in bank
-            let totalMDRFee = 0;       // Payment Gateway cost
-            let totalNetPayout = 0;    // What you owe restaurant
+            let totalMenuValue = 0;    
+            let totalCustomerPaid = 0; 
+            let totalMDRFee = 0;       
+            let totalNetPayout = 0;
+            let totalDiscountsGiven = 0; // Total Snaccit funded
 
             const detailedOrders = orders.map(order => {
                 const menuValue = order.subtotal || 0;
                 const custPaid = order.total || 0;
                 
-                // Calculate MDR on what hit the gateway (Customer Paid)
-                // If paid fully by points (0), MDR is 0.
+                // Calculate Total Discount (Points + Coupon)
+                // This is the difference between Menu Value and Customer Paid
+                const discount = Math.max(0, menuValue - custPaid);
+                
+                // MDR Calculation
                 const mdrFee = (custPaid * MDR_PERCENTAGE) / 100;
                 
-                // Payout = (Menu Price) - (Gateway Fee)
-                // Note: This assumes Snaccit covers the cost of Points/Coupons.
+                // Payout Calculation
                 const netPayout = menuValue - mdrFee;
 
                 totalMenuValue += menuValue;
                 totalCustomerPaid += custPaid;
                 totalMDRFee += mdrFee;
                 totalNetPayout += netPayout;
+                totalDiscountsGiven += discount;
 
-                return { ...order, mdrFee, netPayout };
+                return { ...order, mdrFee, netPayout, totalDiscount: discount };
             });
 
             setReportData({
@@ -223,6 +347,7 @@ const PayoutsView = () => {
                     totalCustomerPaid,
                     totalMDRFee,
                     totalNetPayout,
+                    totalDiscountsGiven,
                     orderCount: detailedOrders.length
                 },
                 dateRange: { start: startDate, end: now }
@@ -236,7 +361,6 @@ const PayoutsView = () => {
         }
     };
 
-    // Trigger report when selection changes
     useEffect(() => {
         if (selectedRestaurant) {
             generateReport(selectedRestaurant.id, dateFilter);
@@ -245,6 +369,13 @@ const PayoutsView = () => {
 
     return (
         <div className="h-full flex flex-col">
+            {/* Modal Injection for Payouts View */}
+            <AdminOrderDetailsModal 
+                isOpen={!!selectedPayoutOrder} 
+                onClose={() => setSelectedPayoutOrder(null)} 
+                order={selectedPayoutOrder} 
+            />
+
             <h1 className="text-3xl font-bold text-gray-100 mb-2">Settlement Reports</h1>
             <p className="text-gray-400 mb-6">Weekly payouts with MDR deduction ({MDR_PERCENTAGE}%).</p>
 
@@ -283,7 +414,7 @@ const PayoutsView = () => {
                             <div className="p-4 border-b border-gray-700 flex flex-wrap gap-4 justify-between items-center bg-gray-900/50 rounded-t-lg">
                                 <div>
                                     <h2 className="text-xl font-bold text-white">{selectedRestaurant.name}</h2>
-                                    <p className="text-xs text-green-400">MDR Rate Applied: {MDR_PERCENTAGE}%</p>
+                                    <p className="text-xs text-green-400">MDR Applied: {MDR_PERCENTAGE}%</p>
                                 </div>
                                 <div className="flex items-center gap-2">
                                     <select 
@@ -310,16 +441,16 @@ const PayoutsView = () => {
                                     {/* 1. Summary Cards */}
                                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
                                         <div className="bg-gray-700/50 p-4 rounded-xl border border-gray-600">
-                                            <p className="text-xs text-gray-400 uppercase font-bold">Total Orders</p>
-                                            <p className="text-2xl font-bold text-white mt-1">{reportData.summary.orderCount}</p>
+                                            <p className="text-xs text-gray-400 uppercase font-bold">Total Sales (Menu Value)</p>
+                                            <p className="text-2xl font-bold text-white mt-1">₹{reportData.summary.totalMenuValue.toFixed(2)}</p>
                                         </div>
                                         <div className="bg-gray-700/50 p-4 rounded-xl border border-gray-600">
-                                            <p className="text-xs text-gray-400 uppercase font-bold">Menu Value (Gross)</p>
-                                            <p className="text-2xl font-bold text-blue-400 mt-1">₹{reportData.summary.totalMenuValue.toFixed(2)}</p>
+                                            <p className="text-xs text-gray-400 uppercase font-bold">Customer Paid</p>
+                                            <p className="text-2xl font-bold text-blue-400 mt-1">₹{reportData.summary.totalCustomerPaid.toFixed(2)}</p>
                                         </div>
-                                        <div className="bg-red-900/20 p-4 rounded-xl border border-red-500/30">
-                                            <p className="text-xs text-red-300 uppercase font-bold">Total MDR Deducted</p>
-                                            <p className="text-2xl font-bold text-red-400 mt-1">- ₹{reportData.summary.totalMDRFee.toFixed(2)}</p>
+                                        <div className="bg-gray-700/50 p-4 rounded-xl border border-gray-600">
+                                            <p className="text-xs text-gray-400 uppercase font-bold">Total Discounts (Pts+Cpn)</p>
+                                            <p className="text-2xl font-bold text-yellow-400 mt-1">₹{reportData.summary.totalDiscountsGiven.toFixed(2)}</p>
                                         </div>
                                         <div className="bg-green-900/30 p-4 rounded-xl border border-green-500/50 relative overflow-hidden">
                                             <div className="absolute top-0 right-0 p-2 opacity-10"><DollarSign size={48}/></div>
@@ -337,41 +468,37 @@ const PayoutsView = () => {
                                             <thead className="bg-gray-800 text-gray-400 font-bold uppercase text-xs tracking-wider">
                                                 <tr>
                                                     <th className="p-3">Date</th>
-                                                    <th className="p-3">Order ID</th>
+                                                    <th className="p-3">ID</th>
                                                     <th className="p-3 text-right text-gray-300">Menu Price</th>
                                                     <th className="p-3 text-right">Cust. Paid</th>
-                                                    <th className="p-3 text-right text-yellow-500" title="Points + Coupons">Pts+Cpn</th>
-                                                    <th className="p-3 text-right text-red-400">MDR ({MDR_PERCENTAGE}%)</th>
-                                                    <th className="p-3 text-right text-green-400 font-bold">Net Payout</th>
+                                                    <th className="p-3 text-right text-yellow-500">Discount</th>
+                                                    <th className="p-3 text-right text-red-400">MDR</th>
+                                                    <th className="p-3 text-right text-green-400 font-bold">Payout</th>
+                                                    <th className="p-3 text-center">View</th>
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-gray-700">
                                                 {reportData.orders.length > 0 ? reportData.orders.map(order => (
                                                     <tr key={order.id} className="hover:bg-gray-800/50 transition-colors">
                                                         <td className="p-3 text-gray-400 font-mono">{order.createdAt?.toLocaleDateString()}</td>
-                                                        <td className="p-3 font-mono text-xs text-gray-500">{order.id.slice(0,8)}...</td>
-                                                        
-                                                        {/* A: Menu Value */}
+                                                        <td className="p-3 font-mono text-xs text-gray-500">{order.id.slice(0,6)}...</td>
                                                         <td className="p-3 text-right font-medium text-gray-200">₹{order.subtotal}</td>
-                                                        
-                                                        {/* B: Customer Paid */}
                                                         <td className="p-3 text-right text-blue-300">₹{order.total}</td>
-                                                        
-                                                        {/* C: Discount (Snaccit Funded) */}
-                                                        <td className="p-3 text-right text-yellow-600">
-                                                            ₹{(order.subtotal - order.total).toFixed(2)}
-                                                        </td>
-                                                        
-                                                        {/* D: MDR Fee */}
-                                                        <td className="p-3 text-right text-red-400">- ₹{order.mdrFee.toFixed(2)}</td>
-                                                        
-                                                        {/* E: Net = A - D */}
-                                                        <td className="p-3 text-right font-bold text-green-400 bg-green-900/10">
-                                                            ₹{order.netPayout.toFixed(2)}
+                                                        <td className="p-3 text-right text-yellow-600">₹{order.totalDiscount.toFixed(2)}</td>
+                                                        <td className="p-3 text-right text-red-400">-₹{order.mdrFee.toFixed(2)}</td>
+                                                        <td className="p-3 text-right font-bold text-green-400 bg-green-900/10">₹{order.netPayout.toFixed(2)}</td>
+                                                        <td className="p-3 text-center">
+                                                            <button 
+                                                                onClick={() => setSelectedPayoutOrder(order)} 
+                                                                className="text-gray-400 hover:text-white p-1 rounded hover:bg-gray-700"
+                                                                title="View Details"
+                                                            >
+                                                                <Eye size={18} />
+                                                            </button>
                                                         </td>
                                                     </tr>
                                                 )) : (
-                                                    <tr><td colSpan="7" className="p-8 text-center text-gray-500 italic">No transactions found for this period.</td></tr>
+                                                    <tr><td colSpan="8" className="p-8 text-center text-gray-500 italic">No transactions found for this period.</td></tr>
                                                 )}
                                             </tbody>
                                         </table>
@@ -503,121 +630,6 @@ const CustomersView = () => {
                             )}
                         </tbody>
                     </table>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-// --- [NEW] Admin Order Details Modal (Dark Mode) ---
-const AdminOrderDetailsModal = ({ isOpen, onClose, order }) => {
-    const [userInfo, setUserInfo] = useState(null);
-    const [isLoadingUser, setIsLoadingUser] = useState(false);
-
-    useEffect(() => {
-        if (isOpen && order && order.userId) {
-            setIsLoadingUser(true);
-            const userDocRef = doc(db, "users", order.userId);
-            getDoc(userDocRef).then(docSnap => {
-                if (docSnap.exists()) {
-                    setUserInfo(docSnap.data());
-                } else {
-                    setUserInfo({ username: 'Unknown User', mobile: 'N/A' });
-                }
-                setIsLoadingUser(false);
-            }).catch(err => {
-                console.error("Error fetching user details:", err);
-                setIsLoadingUser(false);
-            });
-        } else {
-            setUserInfo(null);
-        }
-    }, [isOpen, order]);
-
-    if (!isOpen || !order) return null;
-
-    return (
-        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-            <div className="bg-gray-800 rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col border border-gray-700 text-gray-100">
-                <div className="p-5 border-b border-gray-700 flex justify-between items-center bg-gray-900 rounded-t-2xl">
-                    <h2 className="text-xl font-bold text-green-400 flex items-center gap-2">
-                        <FileText size={20}/> Order Details
-                    </h2>
-                    <button onClick={onClose} className="text-gray-400 hover:text-white"><XSquare size={24} /></button>
-                </div>
-                
-                <div className="p-6 overflow-y-auto space-y-6">
-                    {/* Customer Info Section */}
-                    <div className="bg-gray-700/50 p-4 rounded-xl border border-gray-600">
-                        <h3 className="text-sm font-bold text-blue-400 uppercase tracking-wider mb-3">Customer Information</h3>
-                        {isLoadingUser ? (
-                            <div className="flex items-center gap-2 text-gray-400"><Loader2 className="animate-spin" size={16}/> Loading customer info...</div>
-                        ) : (
-                            <div className="space-y-3">
-                                <div className="flex items-center gap-3">
-                                    <User size={18} className="text-gray-400" />
-                                    <div>
-                                        <p className="text-xs text-gray-500">Customer Name</p>
-                                        <p className="font-semibold text-gray-200">{userInfo?.username || 'Guest'}</p>
-                                    </div>
-                                </div>
-                                <div className="flex items-center gap-3">
-                                    <Phone size={18} className="text-gray-400" />
-                                    <div>
-                                        <p className="text-xs text-gray-500">Mobile Number</p>
-                                        <p className="font-semibold text-gray-200">{userInfo?.mobile || userInfo?.phoneNumber || 'N/A'}</p>
-                                    </div>
-                                </div>
-                                <div className="flex items-center gap-3">
-                                    <Mail size={18} className="text-gray-400" />
-                                    <div>
-                                        <p className="text-xs text-gray-500">Email / ID</p>
-                                        <p className="font-semibold text-gray-200">{userInfo?.email || order.userEmail || order.userId}</p>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Order Items Section */}
-                    <div>
-                        <h3 className="text-sm font-bold text-gray-300 uppercase tracking-wider mb-3">Items Ordered</h3>
-                        <div className="space-y-3">
-                            {order.items.map((item, idx) => (
-                                <div key={idx} className="flex justify-between items-start border-b border-gray-700 pb-3 last:border-0">
-                                    <div>
-                                        <p className="font-semibold text-gray-200">{item.quantity} x {item.name}</p>
-                                        <p className="text-xs text-gray-500">{item.size} {item.addons && item.addons.length > 0 && `+ ${item.addons.join(', ')}`}</p>
-                                    </div>
-                                    <p className="font-medium text-gray-300">₹{item.price.toFixed(2)}</p>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-
-                    {/* Financials Section */}
-                    <div className="bg-gray-900 p-4 rounded-xl">
-                        <div className="flex justify-between text-sm text-gray-400 mb-1">
-                            <span>Subtotal</span>
-                            <span>₹{order.subtotal?.toFixed(2) || order.total.toFixed(2)}</span>
-                        </div>
-                        {order.discount > 0 && (
-                             <div className="flex justify-between text-sm text-green-400 mb-1">
-                                <span>Discount {order.couponCode && `(${order.couponCode})`}</span>
-                                <span>- ₹{order.discount.toFixed(2)}</span>
-                            </div>
-                        )}
-                        <div className="flex justify-between text-lg font-bold text-white border-t border-gray-700 pt-2 mt-2">
-                            <span>Grand Total</span>
-                            <span>₹{order.total.toFixed(2)}</span>
-                        </div>
-                    </div>
-                </div>
-                
-                <div className="p-4 border-t border-gray-700 bg-gray-900 rounded-b-2xl">
-                     <button onClick={onClose} className="w-full bg-gray-700 text-gray-200 font-bold py-3 rounded-lg hover:bg-gray-600 transition-colors">
-                        Close
-                    </button>
                 </div>
             </div>
         </div>
