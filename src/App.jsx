@@ -255,24 +255,28 @@ const AdminOrderDetailsModal = ({ isOpen, onClose, order }) => {
     );
 };
 
-// --- [UPGRADED] Payouts & Reports View (Custom Dates + Fee Waiver) ---
+// --- [FINAL COMPLETE] Payouts & Reports View (With CSV & Full UI) ---
 const PayoutsView = () => {
     const [restaurants, setRestaurants] = useState([]);
     const [selectedRestaurant, setSelectedRestaurant] = useState(null);
+    const [restaurantData, setRestaurantData] = useState(null); // Live data for fee status
     const [isLoading, setIsLoading] = useState(true);
     const [isGenerating, setIsGenerating] = useState(false);
     
-    // New State for Filters
-    const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]); // Default Today
-    const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);   // Default Today
-    const [isFeeWaived, setIsFeeWaived] = useState(false); // Toggle for Waiver
-
+    // Date Filters (Defaulting to Last 7 Days)
+    const [startDate, setStartDate] = useState(() => {
+        const d = new Date();
+        d.setDate(d.getDate() - 7);
+        return d.toISOString().split('T')[0];
+    });
+    const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+    
     const [reportData, setReportData] = useState(null);
     const [selectedPayoutOrder, setSelectedPayoutOrder] = useState(null); 
 
     const STANDARD_MDR = 2.301; 
 
-    // 1. Fetch Restaurants
+    // 1. Fetch List of Restaurants
     useEffect(() => {
         const q = query(collection(db, "restaurants"), orderBy("name"));
         const unsub = onSnapshot(q, (snapshot) => {
@@ -282,28 +286,41 @@ const PayoutsView = () => {
         return () => unsub();
     }, []);
 
-    // 2. Set Default Date to "Last Week" on load
+    // 2. Listen to Selected Restaurant (For Real-time Fee Status)
     useEffect(() => {
-        const end = new Date();
-        const start = new Date();
-        start.setDate(end.getDate() - 7);
-        setStartDate(start.toISOString().split('T')[0]);
-        setEndDate(end.toISOString().split('T')[0]);
-    }, []);
+        if (selectedRestaurant) {
+            const unsub = onSnapshot(doc(db, "restaurants", selectedRestaurant.id), (doc) => {
+                setRestaurantData(doc.data());
+            });
+            return () => unsub();
+        }
+    }, [selectedRestaurant]);
 
-    // 3. Report Generation Logic
+    // 3. Toggle Fee Waiver (Saves to DB)
+    const toggleFeeWaiver = async () => {
+        if (!selectedRestaurant || !restaurantData) return;
+        const newValue = !restaurantData.waiveFee;
+        
+        try {
+            await updateDoc(doc(db, "restaurants", selectedRestaurant.id), {
+                waiveFee: newValue
+            });
+        } catch (error) {
+            console.error("Failed to update fee status:", error);
+            alert("Error updating database.");
+        }
+    };
+
+    // 4. Generate Report Logic
     const generateReport = async () => {
-        if (!selectedRestaurant) return;
+        if (!selectedRestaurant || !restaurantData) return;
         setIsGenerating(true);
         setReportData(null);
         
         try {
-            // Create Date Objects from Inputs (Set time to Start of Day / End of Day)
-            const start = new Date(startDate);
-            start.setHours(0, 0, 0, 0);
-            
-            const end = new Date(endDate);
-            end.setHours(23, 59, 59, 999);
+            // Set time boundaries to cover the full selected days
+            const start = new Date(startDate); start.setHours(0, 0, 0, 0);
+            const end = new Date(endDate); end.setHours(23, 59, 59, 999);
 
             const q = query(
                 collection(db, "orders"), 
@@ -313,14 +330,9 @@ const PayoutsView = () => {
 
             const querySnapshot = await getDocs(q);
             
-            const rawOrders = querySnapshot.docs.map(doc => ({ 
-                id: doc.id, 
-                ...doc.data(), 
-                createdAt: doc.data().createdAt?.toDate() 
-            }));
-
-            // Filter by Date Range in Memory
-            const orders = rawOrders
+            // Filter by date range in memory (Firestore range queries can be tricky with multiple filters)
+            const orders = querySnapshot.docs
+                .map(doc => ({ id: doc.id, ...doc.data(), createdAt: doc.data().createdAt?.toDate() }))
                 .filter(order => order.createdAt >= start && order.createdAt <= end)
                 .sort((a, b) => b.createdAt - a.createdAt);
 
@@ -331,18 +343,18 @@ const PayoutsView = () => {
             let totalNetPayout = 0;
             let totalDiscountsGiven = 0; 
 
-            // Determine effective rate based on your toggle
-            const APPLIED_RATE = isFeeWaived ? 0 : STANDARD_MDR;
+            // USE DATABASE VALUE: If waiveFee is true, rate is 0. Else 2.301%.
+            const isWaived = restaurantData.waiveFee === true; 
+            const APPLIED_RATE = isWaived ? 0 : STANDARD_MDR;
 
             const detailedOrders = orders.map(order => {
                 const menuValue = order.subtotal || 0;
                 const custPaid = order.total || 0;
+                // Discount is difference between Menu Price and what Customer Paid
                 const discount = Math.max(0, menuValue - custPaid);
                 
-                // Calculate MDR based on toggle
+                // Fee Calculation
                 const mdrFee = (custPaid * APPLIED_RATE) / 100;
-                
-                // Net Payout
                 const netPayout = menuValue - mdrFee;
 
                 totalMenuValue += menuValue;
@@ -357,13 +369,8 @@ const PayoutsView = () => {
             setReportData({
                 orders: detailedOrders,
                 summary: {
-                    totalMenuValue,
-                    totalCustomerPaid,
-                    totalMDRFee,
-                    totalNetPayout,
-                    totalDiscountsGiven,
-                    orderCount: detailedOrders.length,
-                    appliedRate: APPLIED_RATE
+                    totalMenuValue, totalCustomerPaid, totalMDRFee, totalNetPayout,
+                    totalDiscountsGiven, orderCount: detailedOrders.length, appliedRate: APPLIED_RATE
                 }
             });
 
@@ -375,56 +382,65 @@ const PayoutsView = () => {
         }
     };
 
-    // --- CSV DOWNLOADER ---
+    // 5. CSV Downloader Function (Restored)
     const downloadCSV = () => {
         if (!reportData || !selectedRestaurant) return;
 
         const summary = reportData.summary;
-        
+        const isWaived = restaurantData?.waiveFee;
+
+        // 1. Summary Section
         const summaryRows = [
             ["PAYOUT REPORT SUMMARY"],
             ["Restaurant", selectedRestaurant.name],
             ["Period", `${startDate} to ${endDate}`],
-            ["Fee Status", isFeeWaived ? "WAIVED (0%)" : `APPLIED (${STANDARD_MDR}%)`],
+            ["Fee Status", isWaived ? "WAIVED (0%)" : `APPLIED (${STANDARD_MDR}%)`],
             [],
             ["Metric", "Amount (INR)"],
-            ["Total Sales", summary.totalMenuValue.toFixed(2)],
+            ["Total Sales (Gross)", summary.totalMenuValue.toFixed(2)],
             ["Customer Paid", summary.totalCustomerPaid.toFixed(2)],
             ["Less: MDR Fee", "-" + summary.totalMDRFee.toFixed(2)],
             ["NET SETTLEMENT", summary.totalNetPayout.toFixed(2)],
             [],
-            ["TRANSACTION DETAILS"] 
+            ["TRANSACTION DETAILS"] // Spacer
         ];
 
-        const tableHeaders = ["Date", "Order ID", "Menu Price", "Cust Paid", "MDR Fee", "Net Payout"];
-        
+        // 2. Headers
+        const tableHeaders = ["Date", "Order ID", "Menu Price", "Cust Paid", "Total Discount", "MDR Fee", "Net Payout"];
+
+        // 3. Rows
         const orderRows = reportData.orders.map(order => [
             order.createdAt?.toLocaleDateString() || '',
             order.id,
             order.subtotal.toFixed(2),
             order.total.toFixed(2),
+            order.totalDiscount.toFixed(2),
             order.mdrFee.toFixed(2),
             order.netPayout.toFixed(2)
         ]);
 
+        // 4. Generate Blob
         const csvContent = [...summaryRows, tableHeaders, ...orderRows].map(e => e.join(",")).join("\n");
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
         link.href = url;
-        link.setAttribute("download", `Payout_${selectedRestaurant.name}_${startDate}.csv`);
+        const filename = `Payout_${selectedRestaurant.name.replace(/ /g, '_')}_${startDate}_to_${endDate}.csv`;
+        link.setAttribute("download", filename);
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
     };
 
-    // Auto-generate when restaurant changes
+    // Auto-generate when restaurant or data changes
     useEffect(() => {
-        if (selectedRestaurant) generateReport();
-    }, [selectedRestaurant]);
+        if (selectedRestaurant && restaurantData) generateReport();
+    }, [selectedRestaurant, restaurantData]); 
 
+    // --- RENDER ---
     return (
         <div className="h-full flex flex-col">
+            {/* Modal for Order Details */}
             <AdminOrderDetailsModal 
                 isOpen={!!selectedPayoutOrder} 
                 onClose={() => setSelectedPayoutOrder(null)} 
@@ -432,7 +448,7 @@ const PayoutsView = () => {
             />
 
             <h1 className="text-3xl font-bold text-gray-100 mb-2">Payout Manager</h1>
-            <p className="text-gray-400 mb-6">Generate settlement reports with flexible dates and fee controls.</p>
+            <p className="text-gray-400 mb-6">Select a restaurant, choose dates, and manage fee waivers.</p>
 
             <div className="flex flex-col lg:flex-row gap-6 h-full min-h-0">
                 
@@ -447,7 +463,7 @@ const PayoutsView = () => {
                             <div 
                                 key={r.id} 
                                 onClick={() => setSelectedRestaurant(r)}
-                                className={`p-4 rounded-lg cursor-pointer mb-2 transition-all flex justify-between items-center ${selectedRestaurant?.id === r.id ? 'bg-green-900/40 border border-green-600' : 'bg-gray-700/30 hover:bg-gray-700 border border-transparent'}`}
+                                className={`p-4 rounded-lg cursor-pointer mb-2 flex justify-between items-center transition-all ${selectedRestaurant?.id === r.id ? 'bg-green-900/40 border border-green-600' : 'bg-gray-700/30 hover:bg-gray-700 border border-transparent'}`}
                             >
                                 <span className="font-bold text-gray-200 truncate">{r.name}</span>
                                 <ChevronRight size={18} className={`text-gray-500 ${selectedRestaurant?.id === r.id ? 'text-green-400' : ''}`}/>
@@ -458,14 +474,14 @@ const PayoutsView = () => {
 
                 {/* RIGHT: Report Details */}
                 <div className="w-full lg:w-3/4 bg-gray-800 rounded-lg shadow-lg border border-gray-700 flex flex-col min-h-[500px]">
-                    {!selectedRestaurant ? (
+                    {!selectedRestaurant || !restaurantData ? (
                         <div className="flex flex-col items-center justify-center h-full text-gray-500">
                             <DollarSign size={48} className="mb-4 opacity-50"/>
                             <p>Select a restaurant to begin.</p>
                         </div>
                     ) : (
                         <div className="flex flex-col h-full">
-                            {/* --- CONTROLS TOOLBAR --- */}
+                            {/* Toolbar: Dates & Toggles */}
                             <div className="p-4 border-b border-gray-700 bg-gray-900/50 rounded-t-lg space-y-4 md:space-y-0 md:flex md:justify-between md:items-end">
                                 
                                 {/* Date Selection */}
@@ -478,40 +494,38 @@ const PayoutsView = () => {
                                         <label className="block text-xs text-gray-400 mb-1">To</label>
                                         <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="bg-gray-700 border border-gray-600 text-white text-sm rounded p-2" />
                                     </div>
-                                    <button onClick={generateReport} className="bg-blue-600 hover:bg-blue-700 text-white p-2 rounded ml-2">
+                                    <button onClick={generateReport} className="bg-blue-600 hover:bg-blue-700 text-white p-2 rounded ml-2 shadow-lg transition-transform active:scale-95">
                                         <div className="flex items-center gap-1"><Eye size={16}/> View</div>
                                     </button>
                                 </div>
 
-                                {/* Fee Waiver Toggle & Export */}
+                                {/* Fee Waiver & Export */}
                                 <div className="flex items-center gap-4">
+                                    {/* Real-time DB Toggle */}
                                     <div 
-                                        className="flex items-center gap-2 cursor-pointer bg-gray-700 p-2 rounded-lg border border-gray-600"
-                                        onClick={() => {
-                                            setIsFeeWaived(!isFeeWaived);
-                                            // Optional: Immediately regenerate when toggled? 
-                                            // Better to let user click "View" or use useEffect dependency
-                                        }}
+                                        className="flex items-center gap-2 cursor-pointer bg-gray-700 p-2 rounded-lg border border-gray-600 hover:bg-gray-600 transition-colors"
+                                        onClick={toggleFeeWaiver}
+                                        title="Click to toggle fee status for this restaurant"
                                     >
-                                        <div className={`w-10 h-5 flex items-center rounded-full p-1 duration-300 ${isFeeWaived ? 'bg-green-500 justify-end' : 'bg-gray-500 justify-start'}`}>
+                                        <div className={`w-10 h-5 flex items-center rounded-full p-1 duration-300 ${restaurantData.waiveFee ? 'bg-green-500 justify-end' : 'bg-red-500 justify-start'}`}>
                                             <div className="bg-white w-3 h-3 rounded-full shadow-md"></div>
                                         </div>
-                                        <span className={`text-sm font-bold ${isFeeWaived ? 'text-green-400' : 'text-gray-400'}`}>
-                                            Waive Fees
+                                        <span className={`text-sm font-bold ${restaurantData.waiveFee ? 'text-green-400' : 'text-red-400'}`}>
+                                            {restaurantData.waiveFee ? 'Fees Waived' : 'Fees Active'}
                                         </span>
                                     </div>
 
                                     <button 
                                         onClick={downloadCSV}
-                                        disabled={!reportData}
-                                        className="bg-green-600 hover:bg-green-700 text-white p-2 rounded-lg flex items-center gap-2 disabled:opacity-50" 
+                                        disabled={!reportData || reportData.orders.length === 0}
+                                        className="bg-green-600 hover:bg-green-700 text-white p-2 rounded-lg flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg transition-transform active:scale-95" 
                                     >
-                                        <Download size={18}/> CSV
+                                        <Download size={18}/> <span className="hidden sm:inline">Export</span>
                                     </button>
                                 </div>
                             </div>
 
-                            {/* Report Content */}
+                            {/* Report Data Area */}
                             {isGenerating ? (
                                 <div className="flex-1 flex items-center justify-center"><Loader2 className="animate-spin text-green-400" size={32}/></div>
                             ) : reportData ? (
@@ -520,23 +534,27 @@ const PayoutsView = () => {
                                     {/* 1. Summary Cards */}
                                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
                                         <div className="bg-gray-700/50 p-4 rounded-xl border border-gray-600">
-                                            <p className="text-xs text-gray-400 uppercase font-bold">Orders</p>
-                                            <p className="text-2xl font-bold text-white mt-1">{reportData.summary.orderCount}</p>
-                                        </div>
-                                        <div className="bg-gray-700/50 p-4 rounded-xl border border-gray-600">
                                             <p className="text-xs text-gray-400 uppercase font-bold">Total Sales</p>
                                             <p className="text-2xl font-bold text-white mt-1">₹{reportData.summary.totalMenuValue.toFixed(2)}</p>
                                         </div>
-                                        <div className={`p-4 rounded-xl border ${isFeeWaived ? 'bg-green-900/20 border-green-500/30' : 'bg-red-900/20 border-red-500/30'}`}>
-                                            <p className={`text-xs uppercase font-bold ${isFeeWaived ? 'text-green-400' : 'text-red-400'}`}>
+                                        <div className="bg-gray-700/50 p-4 rounded-xl border border-gray-600">
+                                            <p className="text-xs text-gray-400 uppercase font-bold">Customer Paid</p>
+                                            <p className="text-2xl font-bold text-blue-400 mt-1">₹{reportData.summary.totalCustomerPaid.toFixed(2)}</p>
+                                        </div>
+                                        
+                                        {/* Dynamic Fee Card */}
+                                        <div className={`p-4 rounded-xl border ${restaurantData.waiveFee ? 'bg-green-900/20 border-green-500/30' : 'bg-red-900/20 border-red-500/30'}`}>
+                                            <p className={`text-xs uppercase font-bold ${restaurantData.waiveFee ? 'text-green-400' : 'text-red-400'}`}>
                                                 MDR Fees ({reportData.summary.appliedRate}%)
                                             </p>
-                                            <p className={`text-2xl font-bold mt-1 ${isFeeWaived ? 'text-green-400 line-through' : 'text-red-400'}`}>
+                                            <p className={`text-2xl font-bold mt-1 ${restaurantData.waiveFee ? 'text-green-400 line-through' : 'text-red-400'}`}>
                                                 ₹{reportData.summary.totalMDRFee.toFixed(2)}
                                             </p>
-                                            {isFeeWaived && <span className="text-xs text-green-300">WAIVED</span>}
+                                            {restaurantData.waiveFee && <span className="text-xs text-green-300 font-bold">SPONSORED</span>}
                                         </div>
-                                        <div className="bg-gradient-to-br from-green-800 to-green-900 p-4 rounded-xl border border-green-500 shadow-lg">
+
+                                        <div className="bg-gradient-to-br from-green-800 to-green-900 p-4 rounded-xl border border-green-500 shadow-lg relative overflow-hidden">
+                                            <div className="absolute top-0 right-0 p-2 opacity-10"><DollarSign size={48}/></div>
                                             <p className="text-xs text-green-200 uppercase font-bold">Net Payout</p>
                                             <p className="text-3xl font-black text-white mt-1">₹{reportData.summary.totalNetPayout.toFixed(2)}</p>
                                         </div>
@@ -548,31 +566,43 @@ const PayoutsView = () => {
                                             <thead className="bg-gray-800 text-gray-400 font-bold uppercase text-xs">
                                                 <tr>
                                                     <th className="p-3">Date</th>
-                                                    <th className="p-3">ID</th>
+                                                    <th className="p-3">Order ID</th>
                                                     <th className="p-3 text-right">Menu Price</th>
+                                                    <th className="p-3 text-right">Cust Paid</th>
                                                     <th className="p-3 text-right text-red-400">Fee</th>
-                                                    <th className="p-3 text-right text-green-400 font-bold">Net</th>
+                                                    <th className="p-3 text-right text-green-400 font-bold">Net Payout</th>
                                                     <th className="p-3 text-center">Action</th>
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-gray-700">
-                                                {reportData.orders.map(order => (
-                                                    <tr key={order.id} className="hover:bg-gray-800/50">
+                                                {reportData.orders.length > 0 ? reportData.orders.map(order => (
+                                                    <tr key={order.id} className="hover:bg-gray-800/50 transition-colors">
                                                         <td className="p-3 text-gray-400">{order.createdAt?.toLocaleDateString()}</td>
-                                                        <td className="p-3 font-mono text-xs text-gray-500">{order.id.slice(0,6)}</td>
-                                                        <td className="p-3 text-right font-medium">₹{order.subtotal}</td>
+                                                        <td className="p-3 font-mono text-xs text-gray-500">{order.id.slice(0,6)}...</td>
+                                                        <td className="p-3 text-right font-medium text-gray-300">₹{order.subtotal}</td>
+                                                        <td className="p-3 text-right text-blue-300">₹{order.total}</td>
                                                         <td className="p-3 text-right text-red-400">
                                                             {order.mdrFee > 0 ? `-₹${order.mdrFee.toFixed(2)}` : <span className="text-gray-600">-</span>}
                                                         </td>
-                                                        <td className="p-3 text-right font-bold text-green-400">₹{order.netPayout.toFixed(2)}</td>
+                                                        <td className="p-3 text-right font-bold text-green-400 bg-green-900/10">₹{order.netPayout.toFixed(2)}</td>
                                                         <td className="p-3 text-center">
-                                                            <button onClick={() => setSelectedPayoutOrder(order)} className="text-gray-400 hover:text-white"><Eye size={16}/></button>
+                                                            <button 
+                                                                onClick={() => setSelectedPayoutOrder(order)} 
+                                                                className="text-gray-400 hover:text-white p-1 rounded hover:bg-gray-700"
+                                                                title="View Details"
+                                                            >
+                                                                <Eye size={16}/>
+                                                            </button>
                                                         </td>
                                                     </tr>
-                                                ))}
+                                                )) : (
+                                                    <tr><td colSpan="7" className="p-8 text-center text-gray-500 italic">No transactions found in this range.</td></tr>
+                                                )}
                                             </tbody>
                                         </table>
                                     </div>
+                                    <p className="text-xs text-gray-500 mt-3 text-right">* Net Payout = Menu Price - ({reportData.summary.appliedRate}% of Customer Paid Amount)</p>
+
                                 </div>
                             ) : null}
                         </div>
