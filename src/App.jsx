@@ -1,19 +1,19 @@
-// snaccit-admin/src/App.jsx
-
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react'; // Removed useMemo (unused)
 import { 
-    ShieldCheck, BarChart2, Store, Users, LogOut, Loader2, 
+    BarChart2, Store, Users, LogOut, Loader2, 
     CheckSquare, XSquare, ShoppingBag, Tag, PlusCircle, 
-    ToggleLeft, ToggleRight, Eye, FileText, User, Phone, Mail,
-    DollarSign, Calendar, ChevronRight, Download, Inbox
-} from 'lucide-react';
+    ToggleLeft, ToggleRight, Eye, FileText,
+    DollarSign, ChevronRight, Download, Inbox, Clock 
+} from 'lucide-react'; // Removed ShieldCheck, User, Phone, Mail, Calendar (unused)
 import { initializeApp } from "firebase/app";
 import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "firebase/auth";
 import { getFirestore, doc, getDoc, collection, onSnapshot, query, where, updateDoc, orderBy, setDoc, serverTimestamp, getDocs } from "firebase/firestore";
 import { 
     LineChart, Line, AreaChart, Area, XAxis, YAxis, 
-    CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell 
-} from 'recharts';
+    CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar 
+} from 'recharts'; // Removed Cell (unused)
+
+
 // --- Firebase Configuration ---
 const firebaseConfig = {
   apiKey: "AIzaSyDDFCPcfBKcvrkjqidsXstHqe8Og_3u36k",
