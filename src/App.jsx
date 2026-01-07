@@ -100,81 +100,95 @@ const DashboardView = () => {
         // 2. Fetch Data for Trends
         const fetchData = async () => {
     setIsLoading(true);
-    const now = new Date();
-    const startOfRange = new Date();
-    startOfRange.setDate(now.getDate() - timeRange);
+    try {
+        const now = new Date();
+        const startOfRange = new Date();
+        startOfRange.setDate(now.getDate() - timeRange);
 
-    // 1. Create Queries
-    const userQ = query(collection(db, "users"), where("createdAt", ">=", startOfRange));
-    const orderQ = query(collection(db, "orders"), where("createdAt", ">=", startOfRange));
-    const activityQ = query(collection(db, "activity_logs"), where("createdAt", ">=", startOfRange));
+        // 1. Create Queries
+        const userQ = query(collection(db, "users"), where("createdAt", ">=", startOfRange));
+        const orderQ = query(collection(db, "orders"), where("createdAt", ">=", startOfRange));
+        const activityQ = query(collection(db, "activity_logs"), where("createdAt", ">=", startOfRange));
 
-    // 2. Fetch all data in parallel
-    const [userSnap, orderSnap, activitySnap] = await Promise.all([
-        getDocs(userQ), 
-        getDocs(orderQ), 
-        getDocs(activityQ)
-    ]);
+        // 2. Fetch all data in parallel
+        const [userSnap, orderSnap, activitySnap] = await Promise.all([
+            getDocs(userQ), 
+            getDocs(orderQ), 
+            getDocs(activityQ)
+        ]);
 
-    const dailyData = {};
+        const dailyData = {};
 
-    // 3. Initialize the date map for the selected range
-    for (let i = 0; i <= timeRange; i++) {
-        const d = new Date();
-        d.setDate(now.getDate() - i);
-        const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-        dailyData[dateStr] = { 
-            date: dateStr, 
-            signups: 0, 
-            orders: 0, 
-            totalMinutes: 0, 
-            sessionCount: 0, 
-            avgTime: 0 
-        };
-    }
-
-    // 4. Map Signups
-    userSnap.forEach(doc => {
-        const date = doc.data().createdAt?.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-        if (dailyData[date]) dailyData[date].signups++;
-    });
-
-    // 5. Map Orders
-    orderSnap.forEach(doc => {
-        const date = doc.data().createdAt?.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-        if (dailyData[date]) dailyData[date].orders++;
-    });
-
-    // 6. Map REAL Activity Logs
-    activitySnap.forEach(doc => {
-        const data = doc.data();
-        const date = data.createdAt?.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-        if (dailyData[date]) {
-            dailyData[date].totalMinutes += (data.duration || 0);
-            dailyData[date].sessionCount += 1;
+        // 3. Initialize the date map
+        for (let i = 0; i <= timeRange; i++) {
+            const d = new Date();
+            d.setDate(now.getDate() - i);
+            const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            dailyData[dateStr] = { 
+                date: dateStr, 
+                signups: 0, 
+                orders: 0, 
+                totalMinutes: 0, 
+                sessionCount: 0, 
+                avgTime: 0 
+            };
         }
-    });
 
-    // 7. Calculate Averages and Finalize Array
-    const finalData = Object.values(dailyData).map(day => ({
-        ...day,
-        // Calculate average; if no sessions, default to 0
-        avgTime: day.sessionCount > 0 ? Math.round(day.totalMinutes / day.sessionCount) : 0
-    })).reverse();
+        // 4. Map Signups (Adding safety check for createdAt)
+        userSnap.forEach(doc => {
+            const data = doc.data();
+            if (data.createdAt) {
+                const date = data.createdAt.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                if (dailyData[date]) dailyData[date].signups++;
+            }
+        });
 
-    // 8. Calculate Overall Avg for the top StatCard
-    const totalPeriodMins = finalData.reduce((acc, curr) => acc + curr.totalMinutes, 0);
-    const totalPeriodSessions = finalData.reduce((acc, curr) => acc + curr.sessionCount, 0);
-    const overallAvg = totalPeriodSessions > 0 ? Math.round(totalPeriodMins / totalPeriodSessions) : 0;
+        // 5. Map Orders
+        orderSnap.forEach(doc => {
+            const data = doc.data();
+            if (data.createdAt) {
+                const date = data.createdAt.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                if (dailyData[date]) dailyData[date].orders++;
+            }
+        });
 
-    setChartData(finalData);
-    setStats({ 
-        restaurants: stats.restaurants, // Keep the live count from onSnapshot
-        users: userSnap.size, 
-        orders: orderSnap.size,
-        avgSession: `${overallAvg}m` 
-    });
-    setIsLoading(false);
+        // 6. Map Activity Logs
+        activitySnap.forEach(doc => {
+            const data = doc.data();
+            if (data.createdAt) {
+                const date = data.createdAt.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                if (dailyData[date]) {
+                    dailyData[date].totalMinutes += (data.duration || 0);
+                    dailyData[date].sessionCount += 1;
+                }
+            }
+        });
+
+        const finalData = Object.values(dailyData).map(day => ({
+            ...day,
+            avgTime: day.sessionCount > 0 ? Math.round(day.totalMinutes / day.sessionCount) : 0
+        })).reverse();
+
+        const totalPeriodMins = finalData.reduce((acc, curr) => acc + curr.totalMinutes, 0);
+        const totalPeriodSessions = finalData.reduce((acc, curr) => acc + curr.sessionCount, 0);
+        const overallAvg = totalPeriodSessions > 0 ? Math.round(totalPeriodMins / totalPeriodSessions) : 0;
+
+        setChartData(finalData);
+        
+        // Update stats using functional update to ensure you don't lose restaurant count
+        setStats(prev => ({ 
+            ...prev,
+            users: userSnap.size, 
+            orders: orderSnap.size,
+            avgSession: `${overallAvg}m` 
+        }));
+
+    } catch (error) {
+        console.error("Dashboard Data Fetch Error:", error);
+        // You can add an alert or notification here
+    } finally {
+        setIsLoading(false); // This ensures the spinner stops even if there's an error
+    }
 };
 
         fetchData();
