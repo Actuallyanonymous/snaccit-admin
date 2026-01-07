@@ -3,7 +3,7 @@ import {
     BarChart2, Store, Users, LogOut, Loader2, 
     CheckSquare, XSquare, ShoppingBag, Tag, PlusCircle, 
     ToggleLeft, ToggleRight, Eye, FileText,
-    DollarSign, ChevronRight, Download, Inbox, Clock 
+    DollarSign, ChevronRight, Download, Inbox, Clock, Gift
 } from 'lucide-react'; // Removed ShieldCheck, User, Phone, Mail, Calendar (unused)
 import { initializeApp } from "firebase/app";
 import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "firebase/auth";
@@ -1215,6 +1215,7 @@ const App = () => {
             case 'coupons': return <CouponsView />;
             case 'payouts': return <PayoutsView />; 
             case 'messages': return <MessagesView />;
+            case 'points': return <PointsManagerView />;
             default: return <DashboardView />;
         }
     };
@@ -1239,6 +1240,12 @@ const App = () => {
                             <li onClick={() => setView('customers')} className={`px-6 py-3 flex items-center cursor-pointer ${view === 'customers' ? 'bg-gray-700 text-white font-semibold' : 'hover:bg-gray-700/50'}`}><Users className="mr-3" size={20}/> Customers</li>
                             <li onClick={() => setView('coupons')} className={`px-6 py-3 flex items-center cursor-pointer ${view === 'coupons' ? 'bg-gray-700 text-white font-semibold' : 'hover:bg-gray-700/50'}`}><Tag className="mr-3" size={20}/> Coupons</li>
                             <li onClick={() => setView('messages')} className={`px-6 py-3 flex items-center cursor-pointer ${view === 'messages' ? 'bg-gray-700 text-white font-semibold' : 'hover:bg-gray-700/50'}`}>
+                            <li 
+    onClick={() => setView('points')} 
+    className={`px-6 py-3 flex items-center cursor-pointer ${view === 'points' ? 'bg-gray-700 text-white font-semibold' : 'hover:bg-gray-700/50'}`}
+>
+    <Gift className="mr-3" size={20}/> Points Manager
+</li>
         <Inbox className="mr-3" size={20}/> Inbox
     </li>
                         </ul>
@@ -1252,6 +1259,130 @@ const App = () => {
                 </div>
             )}
         </>
+    );
+};
+
+// --- Points Manager View ---
+const PointsManagerView = () => {
+    const [searchEmail, setSearchEmail] = useState('');
+    const [foundUser, setFoundUser] = useState(null);
+    const [pointsToAdd, setPointsToAdd] = useState(0);
+    const [isProcessing, setIsProcessing] = useState(false);
+    const [message, setMessage] = useState({ text: '', type: '' });
+
+    const handleSearch = async (e) => {
+        e.preventDefault();
+        setFoundUser(null);
+        setMessage({ text: '', type: '' });
+        
+        try {
+            const q = query(collection(db, "users"), where("email", "==", searchEmail.toLowerCase().trim()));
+            const querySnapshot = await getDocs(q);
+            
+            if (querySnapshot.empty) {
+                setMessage({ text: 'User not found.', type: 'error' });
+            } else {
+                const doc = querySnapshot.docs[0];
+                setFoundUser({ id: doc.id, ...doc.data() });
+            }
+        } catch (err) {
+            console.error(err);
+            setMessage({ text: 'Error searching for user.', type: 'error' });
+        }
+    };
+
+    const handleUpdatePoints = async () => {
+        if (!foundUser || pointsToAdd === 0) return;
+        setIsProcessing(true);
+        
+        try {
+            const userRef = doc(db, "users", foundUser.id);
+            const newPoints = (foundUser.points || 0) + parseInt(pointsToAdd);
+            
+            await updateDoc(userRef, { 
+                points: newPoints,
+                // Optional: Store a "last update" message to trigger a banner in the customer app
+                pointsNotification: {
+                    amount: pointsToAdd,
+                    timestamp: serverTimestamp(),
+                    read: false
+                }
+            });
+
+            setFoundUser(prev => ({ ...prev, points: newPoints }));
+            setMessage({ text: `Successfully added ${pointsToAdd} points!`, type: 'success' });
+            setPointsToAdd(0);
+        } catch (err) {
+            console.error(err);
+            setMessage({ text: 'Failed to update points.', type: 'error' });
+        } finally {
+            setIsProcessing(false);
+        }
+    };
+
+    return (
+        <div className="max-w-4xl">
+            <h1 className="text-3xl font-bold text-gray-100 mb-2">Points Manager</h1>
+            <p className="text-gray-400 mb-8">Reward customers by manually adding Snaccit Points to their accounts.</p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                {/* Search Card */}
+                <div className="bg-gray-800 p-6 rounded-2xl border border-gray-700 shadow-xl">
+                    <h3 className="text-lg font-bold mb-4 flex items-center gap-2"><Search size={20}/> Find Customer</h3>
+                    <form onSubmit={handleSearch} className="space-y-4">
+                        <input 
+                            type="email" 
+                            placeholder="Enter customer email..." 
+                            value={searchEmail}
+                            onChange={(e) => setSearchEmail(e.target.value)}
+                            className="w-full bg-gray-700 border border-gray-600 rounded-xl p-3 text-white focus:ring-2 focus:ring-green-500 outline-none"
+                            required
+                        />
+                        <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-all">
+                            Search
+                        </button>
+                    </form>
+                </div>
+
+                {/* Update Card */}
+                {foundUser && (
+                    <div className="bg-gray-800 p-6 rounded-2xl border border-green-500/30 shadow-xl animate-fade-in-up">
+                        <div className="flex justify-between items-start mb-6">
+                            <div>
+                                <h3 className="text-xl font-bold text-white">{foundUser.username}</h3>
+                                <p className="text-sm text-gray-400">{foundUser.email}</p>
+                            </div>
+                            <div className="bg-amber-500/10 text-amber-500 px-3 py-1 rounded-full text-xs font-bold border border-amber-500/20">
+                                Current: {foundUser.points || 0} pts
+                            </div>
+                        </div>
+
+                        <div className="space-y-4">
+                            <label className="block text-sm font-medium text-gray-400">Points to Add (use negative to subtract)</label>
+                            <input 
+                                type="number" 
+                                value={pointsToAdd}
+                                onChange={(e) => setPointsToAdd(e.target.value)}
+                                className="w-full bg-gray-900 border border-gray-700 rounded-xl p-4 text-2xl font-black text-green-400 text-center focus:ring-2 focus:ring-green-500 outline-none"
+                            />
+                            <button 
+                                onClick={handleUpdatePoints}
+                                disabled={isProcessing || pointsToAdd == 0}
+                                className="w-full bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white font-bold py-4 rounded-xl shadow-lg shadow-green-900/20 transition-all flex justify-center items-center gap-2"
+                            >
+                                {isProcessing ? <Loader2 className="animate-spin"/> : 'Update Balance'}
+                            </button>
+                        </div>
+                    </div>
+                )}
+            </div>
+
+            {message.text && (
+                <div className={`mt-6 p-4 rounded-xl text-center font-bold ${message.type === 'success' ? 'bg-green-900/30 text-green-400 border border-green-500/30' : 'bg-red-900/30 text-red-400 border border-red-500/30'}`}>
+                    {message.text}
+                </div>
+            )}
+        </div>
     );
 };
 
