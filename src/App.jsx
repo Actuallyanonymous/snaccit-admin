@@ -99,46 +99,83 @@ const DashboardView = () => {
         
         // 2. Fetch Data for Trends
         const fetchData = async () => {
-            setIsLoading(true);
-            const now = new Date();
-            const startOfRange = new Date();
-            startOfRange.setDate(now.getDate() - timeRange);
+    setIsLoading(true);
+    const now = new Date();
+    const startOfRange = new Date();
+    startOfRange.setDate(now.getDate() - timeRange);
 
-            // Fetch Users & Orders for the period
-            const userQ = query(collection(db, "users"), where("createdAt", ">=", startOfRange));
-            const orderQ = query(collection(db, "orders"), where("createdAt", ">=", startOfRange));
+    // 1. Create Queries
+    const userQ = query(collection(db, "users"), where("createdAt", ">=", startOfRange));
+    const orderQ = query(collection(db, "orders"), where("createdAt", ">=", startOfRange));
+    const activityQ = query(collection(db, "activity_logs"), where("createdAt", ">=", startOfRange));
 
-            const [userSnap, orderSnap] = await Promise.all([getDocs(userQ), getDocs(orderQ)]);
+    // 2. Fetch all data in parallel
+    const [userSnap, orderSnap, activitySnap] = await Promise.all([
+        getDocs(userQ), 
+        getDocs(orderQ), 
+        getDocs(activityQ)
+    ]);
 
-            // Process data for the charts
-            const dailyData = {};
+    const dailyData = {};
 
-            // Initialize days in range
-            for (let i = 0; i <= timeRange; i++) {
-                const d = new Date();
-                d.setDate(now.getDate() - i);
-                const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                dailyData[dateStr] = { date: dateStr, signups: 0, orders: 0, avgTime: Math.floor(Math.random() * 10) + 5 }; // avgTime is mock data
-            }
-
-            // Map Signups
-            userSnap.forEach(doc => {
-                const date = doc.data().createdAt?.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                if (dailyData[date]) dailyData[date].signups++;
-            });
-
-            // Map Orders
-            orderSnap.forEach(doc => {
-                const date = doc.data().createdAt?.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                if (dailyData[date]) dailyData[date].orders++;
-            });
-
-            // Convert object to array and sort by date
-            const finalData = Object.values(dailyData).reverse();
-            setChartData(finalData);
-            setStats(p => ({ ...p, users: userSnap.size, orders: orderSnap.size }));
-            setIsLoading(false);
+    // 3. Initialize the date map for the selected range
+    for (let i = 0; i <= timeRange; i++) {
+        const d = new Date();
+        d.setDate(now.getDate() - i);
+        const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        dailyData[dateStr] = { 
+            date: dateStr, 
+            signups: 0, 
+            orders: 0, 
+            totalMinutes: 0, 
+            sessionCount: 0, 
+            avgTime: 0 
         };
+    }
+
+    // 4. Map Signups
+    userSnap.forEach(doc => {
+        const date = doc.data().createdAt?.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        if (dailyData[date]) dailyData[date].signups++;
+    });
+
+    // 5. Map Orders
+    orderSnap.forEach(doc => {
+        const date = doc.data().createdAt?.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        if (dailyData[date]) dailyData[date].orders++;
+    });
+
+    // 6. Map REAL Activity Logs
+    activitySnap.forEach(doc => {
+        const data = doc.data();
+        const date = data.createdAt?.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        if (dailyData[date]) {
+            dailyData[date].totalMinutes += (data.duration || 0);
+            dailyData[date].sessionCount += 1;
+        }
+    });
+
+    // 7. Calculate Averages and Finalize Array
+    const finalData = Object.values(dailyData).map(day => ({
+        ...day,
+        // Calculate average; if no sessions, default to 0
+        avgTime: day.sessionCount > 0 ? Math.round(day.totalMinutes / day.sessionCount) : 0
+    })).reverse();
+
+    // 8. Calculate Overall Avg for the top StatCard
+    const totalPeriodMins = finalData.reduce((acc, curr) => acc + curr.totalMinutes, 0);
+    const totalPeriodSessions = finalData.reduce((acc, curr) => acc + curr.sessionCount, 0);
+    const overallAvg = totalPeriodSessions > 0 ? Math.round(totalPeriodMins / totalPeriodSessions) : 0;
+
+    setChartData(finalData);
+    setStats({ 
+        restaurants: stats.restaurants, // Keep the live count from onSnapshot
+        users: userSnap.size, 
+        orders: orderSnap.size,
+        avgSession: `${overallAvg}m` 
+    });
+    setIsLoading(false);
+};
 
         fetchData();
         return () => unsubResto();
@@ -173,7 +210,7 @@ const DashboardView = () => {
                 <StatCard title="Total Restaurants" value={stats.restaurants} icon={<Store className="text-blue-400"/>} trend="+2 this month" />
                 <StatCard title="New Signups" value={stats.users} icon={<Users className="text-green-400"/>} trend="Last 7 Days" />
                 <StatCard title="Total Orders" value={stats.orders} icon={<ShoppingBag className="text-orange-400"/>} trend="Active Period" />
-                <StatCard title="Avg. Session" value="12m 40s" icon={<Clock className="text-purple-400"/>} trend="Engagement" />
+                <StatCard title="Avg. Session" value={stats.avgSession || "0m"} icon={<Clock className="text-purple-400"/>} trend="Engagement" />
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
