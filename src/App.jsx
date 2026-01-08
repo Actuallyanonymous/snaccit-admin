@@ -7,7 +7,7 @@ import {
 } from 'lucide-react'; // Removed ShieldCheck, User, Phone, Mail, Calendar (unused)
 import { initializeApp } from "firebase/app";
 import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "firebase/auth";
-import { getFirestore, doc, getDoc, collection, onSnapshot, query, where, updateDoc, orderBy, setDoc, serverTimestamp, getDocs } from "firebase/firestore";
+import { getFirestore, doc, getDoc, collection, onSnapshot, query, where, updateDoc, orderBy, setDoc, serverTimestamp, getDocs, addDoc, limit } from "firebase/firestore";
 import { 
     LineChart, Line, AreaChart, Area, XAxis, YAxis, 
     CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar 
@@ -86,32 +86,49 @@ const AdminLoginPage = () => {
     );
 };
 
-// --- Points Manager View ---
+// --- Points Manager View (Updated for Mobile Search & Activity Logs) ---
 const PointsManagerView = () => {
-    const [searchEmail, setSearchEmail] = useState('');
+    const [searchMobile, setSearchMobile] = useState('');
     const [foundUser, setFoundUser] = useState(null);
     const [pointsToAdd, setPointsToAdd] = useState(0);
     const [isProcessing, setIsProcessing] = useState(false);
     const [message, setMessage] = useState({ text: '', type: '' });
+    const [recentActivity, setRecentActivity] = useState([]);
+
+    // Fetch Recent Activity on Load
+    useEffect(() => {
+        const q = query(collection(db, "points_history"), orderBy("timestamp", "desc"), limit(10));
+        const unsub = onSnapshot(q, (snapshot) => {
+            setRecentActivity(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        });
+        return () => unsub();
+    }, []);
 
     const handleSearch = async (e) => {
         e.preventDefault();
         setFoundUser(null);
         setMessage({ text: '', type: '' });
         
+        // Clean the input: ensure it starts with +91 if not provided
+        let formattedMobile = searchMobile.trim();
+        if (!formattedMobile.startsWith('+')) {
+            formattedMobile = `+91${formattedMobile}`;
+        }
+
         try {
-            const q = query(collection(db, "users"), where("email", "==", searchEmail.toLowerCase().trim()));
+            // Search by mobile number field
+            const q = query(collection(db, "users"), where("mobile", "==", formattedMobile));
             const querySnapshot = await getDocs(q);
             
             if (querySnapshot.empty) {
-                setMessage({ text: 'User not found.', type: 'error' });
+                setMessage({ text: 'No user found with this mobile number.', type: 'error' });
             } else {
-                const doc = querySnapshot.docs[0];
-                setFoundUser({ id: doc.id, ...doc.data() });
+                const userDoc = querySnapshot.docs[0];
+                setFoundUser({ id: userDoc.id, ...userDoc.data() });
             }
         } catch (err) {
             console.error(err);
-            setMessage({ text: 'Error searching for user.', type: 'error' });
+            setMessage({ text: 'Search failed. Check console.', type: 'error' });
         }
     };
 
@@ -121,11 +138,12 @@ const PointsManagerView = () => {
         
         try {
             const userRef = doc(db, "users", foundUser.id);
+            const historyRef = collection(db, "points_history");
             const newPoints = (foundUser.points || 0) + parseInt(pointsToAdd);
             
+            // 1. Update User Profile & set Notification
             await updateDoc(userRef, { 
                 points: newPoints,
-                // Optional: Store a "last update" message to trigger a banner in the customer app
                 pointsNotification: {
                     amount: pointsToAdd,
                     timestamp: serverTimestamp(),
@@ -133,79 +151,135 @@ const PointsManagerView = () => {
                 }
             });
 
+            // 2. Create Audit Log for "Recent Activity"
+            await addDoc(historyRef, {
+                adminEmail: auth.currentUser.email,
+                targetUserId: foundUser.id,
+                targetUserName: foundUser.username,
+                targetMobile: foundUser.mobile,
+                pointsChanged: parseInt(pointsToAdd),
+                newBalance: newPoints,
+                timestamp: serverTimestamp()
+            });
+
             setFoundUser(prev => ({ ...prev, points: newPoints }));
-            setMessage({ text: `Successfully added ${pointsToAdd} points!`, type: 'success' });
+            setMessage({ text: `Successfully updated balance!`, type: 'success' });
             setPointsToAdd(0);
         } catch (err) {
             console.error(err);
-            setMessage({ text: 'Failed to update points.', type: 'error' });
+            setMessage({ text: 'Update failed.', type: 'error' });
         } finally {
             setIsProcessing(false);
         }
     };
 
     return (
-        <div className="max-w-4xl">
-            <h1 className="text-3xl font-bold text-gray-100 mb-2">Points Manager</h1>
-            <p className="text-gray-400 mb-8">Reward customers by manually adding Snaccit Points to their accounts.</p>
+        <div className="space-y-8">
+            <h1 className="text-3xl font-bold text-gray-100">Points Manager</h1>
+            
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                {/* Search & Actions Column */}
+                <div className="lg:col-span-1 space-y-6">
+                    <div className="bg-gray-800 p-6 rounded-2xl border border-gray-700 shadow-xl">
+                        <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-green-400">
+                            <Phone size={18}/> Search by Mobile
+                        </h3>
+                        <form onSubmit={handleSearch} className="space-y-4">
+                            <input 
+                                type="tel" 
+                                placeholder="e.g. 9876543210" 
+                                value={searchMobile}
+                                onChange={(e) => setSearchMobile(e.target.value)}
+                                className="w-full bg-gray-900 border border-gray-700 rounded-xl p-3 text-white focus:ring-2 focus:ring-green-500 outline-none"
+                                required
+                            />
+                            <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-all">
+                                Find User
+                            </button>
+                        </form>
+                    </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                {/* Search Card */}
-                <div className="bg-gray-800 p-6 rounded-2xl border border-gray-700 shadow-xl">
-                    <h3 className="text-lg font-bold mb-4 flex items-center gap-2"><Search size={20}/> Find Customer</h3>
-                    <form onSubmit={handleSearch} className="space-y-4">
-                        <input 
-                            type="email" 
-                            placeholder="Enter customer email..." 
-                            value={searchEmail}
-                            onChange={(e) => setSearchEmail(e.target.value)}
-                            className="w-full bg-gray-700 border border-gray-600 rounded-xl p-3 text-white focus:ring-2 focus:ring-green-500 outline-none"
-                            required
-                        />
-                        <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-all">
-                            Search
-                        </button>
-                    </form>
-                </div>
-
-                {/* Update Card */}
-                {foundUser && (
-                    <div className="bg-gray-800 p-6 rounded-2xl border border-green-500/30 shadow-xl animate-fade-in-up">
-                        <div className="flex justify-between items-start mb-6">
-                            <div>
+                    {foundUser && (
+                        <div className="bg-gray-800 p-6 rounded-2xl border border-green-500/30 shadow-xl animate-fade-in-up">
+                            <div className="mb-6">
                                 <h3 className="text-xl font-bold text-white">{foundUser.username}</h3>
-                                <p className="text-sm text-gray-400">{foundUser.email}</p>
+                                <p className="text-sm text-gray-400">{foundUser.mobile}</p>
+                                <div className="mt-2 inline-block bg-amber-500/10 text-amber-500 px-3 py-1 rounded-full text-xs font-bold border border-amber-500/20">
+                                    Current Balance: {foundUser.points || 0} pts
+                                </div>
                             </div>
-                            <div className="bg-amber-500/10 text-amber-500 px-3 py-1 rounded-full text-xs font-bold border border-amber-500/20">
-                                Current: {foundUser.points || 0} pts
+
+                            <div className="space-y-4">
+                                <label className="block text-sm font-medium text-gray-400">Add or Subtract Points</label>
+                                <input 
+                                    type="number" 
+                                    value={pointsToAdd}
+                                    onChange={(e) => setPointsToAdd(e.target.value)}
+                                    className="w-full bg-gray-900 border border-gray-700 rounded-xl p-4 text-2xl font-black text-green-400 text-center focus:ring-2 focus:ring-green-500 outline-none"
+                                />
+                                <button 
+                                    onClick={handleUpdatePoints}
+                                    disabled={isProcessing || pointsToAdd == 0}
+                                    className="w-full bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white font-bold py-4 rounded-xl shadow-lg transition-all flex justify-center items-center gap-2"
+                                >
+                                    {isProcessing ? <Loader2 className="animate-spin"/> : 'Confirm Update'}
+                                </button>
                             </div>
                         </div>
+                    )}
+                    {message.text && (
+                        <div className={`p-4 rounded-xl text-center font-bold text-sm ${message.type === 'success' ? 'bg-green-900/30 text-green-400 border border-green-500/30' : 'bg-red-900/30 text-red-400 border border-red-500/30'}`}>
+                            {message.text}
+                        </div>
+                    )}
+                </div>
 
-                        <div className="space-y-4">
-                            <label className="block text-sm font-medium text-gray-400">Points to Add (use negative to subtract)</label>
-                            <input 
-                                type="number" 
-                                value={pointsToAdd}
-                                onChange={(e) => setPointsToAdd(e.target.value)}
-                                className="w-full bg-gray-900 border border-gray-700 rounded-xl p-4 text-2xl font-black text-green-400 text-center focus:ring-2 focus:ring-green-500 outline-none"
-                            />
-                            <button 
-                                onClick={handleUpdatePoints}
-                                disabled={isProcessing || pointsToAdd == 0}
-                                className="w-full bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white font-bold py-4 rounded-xl shadow-lg shadow-green-900/20 transition-all flex justify-center items-center gap-2"
-                            >
-                                {isProcessing ? <Loader2 className="animate-spin"/> : 'Update Balance'}
-                            </button>
+                {/* Recent Activity Column */}
+                <div className="lg:col-span-2">
+                    <div className="bg-gray-800 rounded-2xl border border-gray-700 shadow-xl overflow-hidden flex flex-col h-full">
+                        <div className="p-5 border-b border-gray-700 bg-gray-900/50">
+                            <h3 className="text-lg font-bold text-gray-200 flex items-center gap-2">
+                                <FileText size={20} className="text-blue-400"/> Recent Activity Log
+                            </h3>
+                        </div>
+                        <div className="flex-1 overflow-y-auto max-h-[600px]">
+                            {recentActivity.length > 0 ? (
+                                <table className="w-full text-left text-sm">
+                                    <thead className="bg-gray-900 text-gray-500 font-bold uppercase text-xs sticky top-0">
+                                        <tr>
+                                            <th className="p-4">User</th>
+                                            <th className="p-4">Change</th>
+                                            <th className="p-4">Admin</th>
+                                            <th className="p-4 text-right">Date</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-700">
+                                        {recentActivity.map(log => (
+                                            <tr key={log.id} className="hover:bg-gray-700/30 transition-colors">
+                                                <td className="p-4">
+                                                    <p className="font-bold text-gray-200">{log.targetUserName}</p>
+                                                    <p className="text-xs text-gray-500">{log.targetMobile}</p>
+                                                </td>
+                                                <td className="p-4">
+                                                    <span className={`font-black ${log.pointsChanged > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                                        {log.pointsChanged > 0 ? '+' : ''}{log.pointsChanged} pts
+                                                    </span>
+                                                </td>
+                                                <td className="p-4 text-gray-400 text-xs">{log.adminEmail?.split('@')[0]}</td>
+                                                <td className="p-4 text-right text-gray-500 text-xs">
+                                                    {log.timestamp?.toDate().toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            ) : (
+                                <div className="p-20 text-center text-gray-600">No recent activity recorded.</div>
+                            )}
                         </div>
                     </div>
-                )}
-            </div>
-
-            {message.text && (
-                <div className={`mt-6 p-4 rounded-xl text-center font-bold ${message.type === 'success' ? 'bg-green-900/30 text-green-400 border border-green-500/30' : 'bg-red-900/30 text-red-400 border border-red-500/30'}`}>
-                    {message.text}
                 </div>
-            )}
+            </div>
         </div>
     );
 };
