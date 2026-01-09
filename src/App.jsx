@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { initializeApp } from "firebase/app";
 import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "firebase/auth";
-import { getFirestore, doc, getDoc, collection, onSnapshot, query, where, updateDoc, orderBy, setDoc, serverTimestamp, getDocs, addDoc, limit } from "firebase/firestore";
+import { getFirestore, doc, getDoc, collection, onSnapshot, query, where, updateDoc, orderBy, setDoc, serverTimestamp, getDocs, addDoc, limit, deleteDoc } from "firebase/firestore";
 import { 
     LineChart, Line, AreaChart, Area, XAxis, YAxis, 
     CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar 
@@ -622,6 +622,135 @@ const AdminOrderDetailsModal = ({ isOpen, onClose, order }) => {
                      <button onClick={onClose} className="w-full bg-gray-700 text-gray-200 font-bold py-3 rounded-lg hover:bg-gray-600 transition-colors">
                         Close Details
                     </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// --- Burn Rate & Financials View ---
+const BurnRateView = () => {
+    const [financials, setFinancials] = useState({
+        pointsBurn: 0,
+        couponBurn: 0,
+        pgCharges: 0,
+        ordersCount: 0,
+        totalRevenue: 0
+    });
+    const [manualExpenses, setManualExpenses] = useState([]);
+    const [isLoading, setIsLoading] = useState(true);
+
+    useEffect(() => {
+        const fetchFinancialData = async () => {
+            setIsLoading(true);
+            const now = new Date();
+            const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+            try {
+                // 1. Calculate Real-time Burn from Orders
+                const q = query(
+                    collection(db, "orders"),
+                    where("status", "==", "completed"),
+                    where("createdAt", ">=", startOfMonth)
+                );
+                const orderSnap = await getDocs(q);
+
+                let points = 0;
+                let coupons = 0;
+                let revenue = 0;
+                let count = 0;
+
+                orderSnap.forEach(doc => {
+                    const data = doc.data();
+                    points += (data.pointsValue || 0);
+                    // Coupon = Subtotal - Total - Points
+                    const disc = (data.subtotal || 0) - (data.total || 0) - (data.pointsValue || 0);
+                    coupons += Math.max(0, disc);
+                    revenue += (data.total || 0);
+                    count++;
+                });
+
+                // 2. Fetch Manual Expenses (Server, Marketing, etc.)
+                const expQ = query(collection(db, "admin_expenses"), orderBy("date", "desc"));
+                const expSnap = await getDocs(expQ);
+                setManualExpenses(expSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+
+                setFinancials({
+                    pointsBurn: points,
+                    couponBurn: coupons,
+                    pgCharges: (revenue * 0.02301), 
+                    ordersCount: count,
+                    totalRevenue: revenue
+                });
+            } catch (err) {
+                console.error("Burn Rate Fetch Error:", err);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
+        fetchFinancialData();
+    }, []);
+
+    const totalManualBurn = manualExpenses.reduce((acc, curr) => acc + (curr.amount || 0), 0);
+    const directBurn = financials.pointsBurn + financials.couponBurn + financials.pgCharges;
+    const grossBurn = directBurn + totalManualBurn;
+
+    if (isLoading) return <div className="flex justify-center py-20"><Loader2 className="animate-spin text-green-400" size={32} /></div>;
+
+    return (
+        <div className="space-y-8">
+            <h1 className="text-3xl font-bold text-gray-100">Burn Rate Tracker</h1>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="bg-red-900/20 border border-red-500/50 p-6 rounded-2xl">
+                    <p className="text-red-400 text-sm font-bold uppercase">Total Burn (MTD)</p>
+                    <p className="text-4xl font-black text-white mt-2">₹{grossBurn.toFixed(2)}</p>
+                </div>
+                <div className="bg-orange-900/20 border border-orange-500/50 p-6 rounded-2xl">
+                    <p className="text-orange-400 text-sm font-bold uppercase">Discount & PG Burn</p>
+                    <p className="text-4xl font-black text-white mt-2">₹{directBurn.toFixed(2)}</p>
+                </div>
+                <div className="bg-blue-900/20 border border-blue-500/50 p-6 rounded-2xl">
+                    <p className="text-blue-400 text-sm font-bold uppercase">Total Revenue (MTD)</p>
+                    <p className="text-4xl font-black text-white mt-2">₹{financials.totalRevenue.toFixed(2)}</p>
+                </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div className="bg-gray-800 p-6 rounded-2xl border border-gray-700 shadow-xl">
+                    <h3 className="text-lg font-bold mb-6 flex items-center gap-2 text-orange-400"><ShoppingBag size={20}/> Customer-Side Costs</h3>
+                    <div className="space-y-4">
+                        <div className="flex justify-between p-4 bg-gray-900/50 rounded-xl border border-gray-700">
+                            <span className="text-gray-400 font-medium">Points Redeemed</span>
+                            <span className="text-white font-bold">₹{financials.pointsBurn.toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between p-4 bg-gray-900/50 rounded-xl border border-gray-700">
+                            <span className="text-gray-400 font-medium">Coupon Discounts</span>
+                            <span className="text-white font-bold">₹{financials.couponBurn.toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between p-4 bg-gray-900/50 rounded-xl border border-gray-700">
+                            <span className="text-gray-400 font-medium">PG Charges (2.301%)</span>
+                            <span className="text-white font-bold">₹{financials.pgCharges.toFixed(2)}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="bg-gray-800 p-6 rounded-2xl border border-gray-700 shadow-xl flex flex-col">
+                    <h3 className="text-lg font-bold mb-6 flex items-center gap-2 text-green-400"><DollarSign size={20}/> Operational & Marketing</h3>
+                    <div className="flex-1 space-y-3">
+                        {manualExpenses.length > 0 ? manualExpenses.map(exp => (
+                            <div key={exp.id} className="flex justify-between items-center p-3 bg-gray-700/30 rounded-xl border border-gray-600/50">
+                                <div>
+                                    <p className="font-bold text-gray-200">{exp.category}</p>
+                                    <p className="text-[10px] text-gray-500 uppercase">{exp.note}</p>
+                                </div>
+                                <span className="font-mono font-bold text-red-400">-₹{exp.amount}</span>
+                            </div>
+                        )) : (
+                            <div className="text-center py-10 text-gray-500 italic">No manual expenses logged.</div>
+                        )}
+                    </div>
                 </div>
             </div>
         </div>
@@ -1414,6 +1543,7 @@ const App = () => {
             case 'coupons': return <CouponsView />;
             case 'payouts': return <PayoutsView />; 
             case 'messages': return <MessagesView />;
+            case 'burn': return <BurnRateView />;
             case 'points': return <PointsManagerView />;
             default: return <DashboardView />;
         }
@@ -1445,6 +1575,10 @@ const App = () => {
     <Inbox className="mr-3" size={20}/> Inbox
 </li>
 
+<li onClick={() => setView('burn')} className={`px-6 py-3 flex items-center cursor-pointer transition-colors ${view === 'burn' ? 'bg-gray-700 text-white font-semibold' : 'hover:bg-gray-700/50'}`}>
+    <DollarSign className="mr-3" size={20}/> Burn Rate
+</li>
+
 <li 
     onClick={() => setView('points')} 
     className={`px-6 py-3 flex items-center cursor-pointer ${view === 'points' ? 'bg-gray-700 text-white font-semibold' : 'hover:bg-gray-700/50'}`}
@@ -1466,3 +1600,7 @@ const App = () => {
 };
 
 export default App;
+
+
+
+
