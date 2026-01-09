@@ -3,8 +3,8 @@ import {
     BarChart2, Store, Users, LogOut, Loader2, 
     CheckSquare, XSquare, ShoppingBag, Tag, PlusCircle, 
     ToggleLeft, ToggleRight, Eye, FileText,
-    DollarSign, ChevronRight, Download, Inbox, Clock, Gift, Search
-} from 'lucide-react'; // Removed ShieldCheck, User, Phone, Mail, Calendar (unused)
+    DollarSign, ChevronRight, Download, Inbox, Clock, Gift, Search, Phone
+} from 'lucide-react';
 import { initializeApp } from "firebase/app";
 import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "firebase/auth";
 import { getFirestore, doc, getDoc, collection, onSnapshot, query, where, updateDoc, orderBy, setDoc, serverTimestamp, getDocs, addDoc, limit } from "firebase/firestore";
