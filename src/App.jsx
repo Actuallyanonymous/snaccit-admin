@@ -642,52 +642,58 @@ const BurnRateView = () => {
 
     useEffect(() => {
         const fetchFinancialData = async () => {
-            setIsLoading(true);
-            const now = new Date();
-            const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    setIsLoading(true);
+    const now = new Date();
+    // Month-to-date filter
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
-            try {
-                // 1. Calculate Real-time Burn from Orders
-                const q = query(
-                    collection(db, "orders"),
-                    where("status", "==", "completed"),
-                    where("createdAt", ">=", startOfMonth)
-                );
-                const orderSnap = await getDocs(q);
+    try {
+        const q = query(
+            collection(db, "orders"),
+            where("status", "==", "completed"),
+            where("createdAt", ">=", startOfMonth)
+        );
+        const orderSnap = await getDocs(q);
 
-                let points = 0;
-                let coupons = 0;
-                let revenue = 0;
-                let count = 0;
+        let points = 0;
+        let coupons = 0;
+        let revenue = 0;
+        let count = 0;
 
-                orderSnap.forEach(doc => {
-                    const data = doc.data();
-                    points += (data.pointsValue || 0);
-                    // Coupon = Subtotal - Total - Points
-                    const disc = (data.subtotal || 0) - (data.total || 0) - (data.pointsValue || 0);
-                    coupons += Math.max(0, disc);
-                    revenue += (data.total || 0);
-                    count++;
-                });
+        orderSnap.forEach(doc => {
+            const data = doc.data();
+            const orderTotal = data.total || 0;
+            const orderSubtotal = data.subtotal || orderTotal; // Fallback to total if subtotal missing
+            const orderPoints = data.pointsValue || 0;
 
-                // 2. Fetch Manual Expenses (Server, Marketing, etc.)
-                const expQ = query(collection(db, "admin_expenses"), orderBy("date", "desc"));
-                const expSnap = await getDocs(expQ);
-                setManualExpenses(expSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+            points += orderPoints;
+            revenue += orderTotal;
+            
+            // Logic: Coupon is the gap left after accounting for what the customer paid and points used
+            const disc = orderSubtotal - orderTotal - orderPoints;
+            if (disc > 0) coupons += disc;
+            
+            count++;
+        });
 
-                setFinancials({
-                    pointsBurn: points,
-                    couponBurn: coupons,
-                    pgCharges: (revenue * 0.02301), 
-                    ordersCount: count,
-                    totalRevenue: revenue
-                });
-            } catch (err) {
-                console.error("Burn Rate Fetch Error:", err);
-            } finally {
-                setIsLoading(false);
-            }
-        };
+        // Fetch Expenses
+        const expQ = query(collection(db, "admin_expenses"));
+        const expSnap = await getDocs(expQ);
+        setManualExpenses(expSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+
+        setFinancials({
+            pointsBurn: points,
+            couponBurn: coupons,
+            pgCharges: (revenue * 0.02301), 
+            ordersCount: count,
+            totalRevenue: revenue
+        });
+    } catch (err) {
+        console.error("Fetch error:", err);
+    } finally {
+        setIsLoading(false);
+    }
+};
 
         fetchFinancialData();
     }, []);
