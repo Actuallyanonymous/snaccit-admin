@@ -1372,17 +1372,23 @@ const CouponsView = () => {
         const couponId = newCoupon.code.toUpperCase();
         const couponRef = doc(db, "coupons", couponId);
         
-        await setDoc(couponRef, {
-            type: newCoupon.type,
-            value: Number(newCoupon.value),
-            minOrderValue: Number(newCoupon.minOrderValue),
-            usageLimit: newCoupon.usageLimit, // <--- SAVE TO FIRESTORE
-            isActive: true,
-            createdAt: serverTimestamp(),
-            expiryDate: new Date(newCoupon.expiryDate)
-        });
-        
-        setNewCoupon({ code: '', type: 'fixed', value: 0, minOrderValue: 0, expiryDate: '', usageLimit: 'once' });
+        try {
+            await setDoc(couponRef, {
+                type: newCoupon.type,
+                value: Number(newCoupon.value),
+                minOrderValue: Number(newCoupon.minOrderValue),
+                usageLimit: newCoupon.usageLimit, 
+                isActive: true,
+                createdAt: serverTimestamp(),
+                expiryDate: new Date(newCoupon.expiryDate)
+            });
+            
+            // Reset state
+            setNewCoupon({ code: '', type: 'fixed', value: 0, minOrderValue: 0, expiryDate: '', usageLimit: 'once' });
+        } catch (error) {
+            console.error("Error creating coupon:", error);
+            alert("Failed to create coupon.");
+        }
     };
 
     const handleToggleActive = async (couponId, currentStatus) => {
@@ -1396,56 +1402,94 @@ const CouponsView = () => {
             <p className="text-gray-400 mt-2">Create and manage discount codes for users.</p>
             
             <div className="mt-8 bg-gray-800 p-6 rounded-lg shadow-lg">
-                <h2 className="text-xl font-bold mb-4">Create New Coupon</h2>
-                <form onSubmit={handleCreateCoupon} className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-                    <input name="code" value={newCoupon.code} onChange={handleInputChange} placeholder="Coupon Code (e.g., WELCOME50)" className="bg-gray-700 border border-gray-600 rounded-lg p-2" required />
+                <h2 className="text-xl font-bold mb-4 text-gray-100">Create New Coupon</h2>
+                <form onSubmit={handleCreateCoupon} className="grid grid-cols-1 md:grid-cols-3 gap-6 items-end">
+                    
+                    {/* Column 1: Code */}
                     <div className="flex flex-col">
-        <label className="text-xs text-gray-400 mb-1">Usage Limit</label>
-        <select name="usageLimit" value={newCoupon.usageLimit} onChange={handleInputChange} className="bg-gray-700 border border-gray-600 rounded-lg p-2">
-            <option value="once">Once Per Mobile Number</option>
-            <option value="unlimited">Unlimited Use</option>
-        </select>
-    </div>
+                        <label className="text-xs text-gray-400 mb-1">Coupon Code</label>
+                        <input name="code" value={newCoupon.code} onChange={handleInputChange} placeholder="e.g. WELCOME50" className="bg-gray-700 border border-gray-600 rounded-lg p-2 text-white outline-none focus:ring-2 focus:ring-green-500" required />
+                    </div>
 
-    <select name="type" value={newCoupon.type} onChange={handleInputChange} className="bg-gray-700 border border-gray-600 rounded-lg p-2">
-        <option value="fixed">Fixed Amount (₹)</option>
-        <option value="percentage">Percentage (%)</option>
-    </select>
-    <input name="value" type="number" value={newCoupon.value} onChange={handleInputChange} placeholder="Discount Value" className="bg-gray-700 border border-gray-600 rounded-lg p-2" required />
-    <input name="minOrderValue" type="number" value={newCoupon.minOrderValue} onChange={handleInputChange} placeholder="Min Order (₹)" className="bg-gray-700 border border-gray-600 rounded-lg p-2" required />
-    <input name="expiryDate" type="date" value={newCoupon.expiryDate} onChange={handleInputChange} className="bg-gray-700 border border-gray-600 rounded-lg p-2" required />
+                    {/* Column 2: Usage Limit */}
+                    <div className="flex flex-col">
+                        <label className="text-xs text-gray-400 mb-1">Usage Limit</label>
+                        <select name="usageLimit" value={newCoupon.usageLimit} onChange={handleInputChange} className="bg-gray-700 border border-gray-600 rounded-lg p-2 text-white outline-none focus:ring-2 focus:ring-green-500">
+                            <option value="once">Once Per Mobile Number</option>
+                            <option value="unlimited">Unlimited Use</option>
+                        </select>
+                    </div>
 
-    <button type="submit" className="bg-green-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-green-700 flex items-center justify-center gap-2">
-        <PlusCircle size={18}/>Create
-    </button>
-                    <select name="type" value={newCoupon.type} onChange={handleInputChange} className="bg-gray-700 border border-gray-600 rounded-lg p-2">
-                        <option value="fixed">Fixed Amount (₹)</option>
-                        <option value="percentage">Percentage (%)</option>
-                    </select>
-                    <input name="value" type="number" value={newCoupon.value} onChange={handleInputChange} placeholder="Discount Value" className="bg-gray-700 border border-gray-600 rounded-lg p-2" required />
-                    <input name="minOrderValue" type="number" value={newCoupon.minOrderValue} onChange={handleInputChange} placeholder="Min Order Value (₹)" className="bg-gray-700 border border-gray-600 rounded-lg p-2" required />
-                    <input name="expiryDate" type="date" value={newCoupon.expiryDate} onChange={handleInputChange} className="bg-gray-700 border border-gray-600 rounded-lg p-2" required />
-                    <button type="submit" className="bg-green-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-green-700 flex items-center justify-center gap-2"><PlusCircle size={18}/>Create</button>
+                    {/* Column 3: Type */}
+                    <div className="flex flex-col">
+                        <label className="text-xs text-gray-400 mb-1">Discount Type</label>
+                        <select name="type" value={newCoupon.type} onChange={handleInputChange} className="bg-gray-700 border border-gray-600 rounded-lg p-2 text-white outline-none focus:ring-2 focus:ring-green-500">
+                            <option value="fixed">Fixed Amount (₹)</option>
+                            <option value="percentage">Percentage (%)</option>
+                        </select>
+                    </div>
+
+                    {/* Column 4: Value */}
+                    <div className="flex flex-col">
+                        <label className="text-xs text-gray-400 mb-1">Discount Value</label>
+                        <input name="value" type="number" value={newCoupon.value} onChange={handleInputChange} placeholder="0" className="bg-gray-700 border border-gray-600 rounded-lg p-2 text-white outline-none focus:ring-2 focus:ring-green-500" required />
+                    </div>
+
+                    {/* Column 5: Min Order */}
+                    <div className="flex flex-col">
+                        <label className="text-xs text-gray-400 mb-1">Min Order (₹)</label>
+                        <input name="minOrderValue" type="number" value={newCoupon.minOrderValue} onChange={handleInputChange} placeholder="0" className="bg-gray-700 border border-gray-600 rounded-lg p-2 text-white outline-none focus:ring-2 focus:ring-green-500" required />
+                    </div>
+
+                    {/* Column 6: Expiry */}
+                    <div className="flex flex-col">
+                        <label className="text-xs text-gray-400 mb-1">Expiry Date</label>
+                        <input name="expiryDate" type="date" value={newCoupon.expiryDate} onChange={handleInputChange} className="bg-gray-700 border border-gray-600 rounded-lg p-2 text-white outline-none focus:ring-2 focus:ring-green-500" required />
+                    </div>
+                    
+                    {/* Submit Button spanning across or sitting in a column */}
+                    <div className="md:col-span-3 mt-4">
+                        <button type="submit" className="w-full bg-green-600 text-white font-bold py-3 rounded-lg hover:bg-green-700 transition-all shadow-lg flex items-center justify-center gap-2">
+                            <PlusCircle size={20}/> Create Coupon
+                        </button>
+                    </div>
                 </form>
             </div>
 
             <div className="mt-8 bg-gray-800 p-6 rounded-lg shadow-lg">
-                <h2 className="text-xl font-bold mb-4">Existing Coupons</h2>
+                <h2 className="text-xl font-bold mb-4 text-gray-100">Existing Coupons</h2>
                 <div className="overflow-x-auto">
                     <table className="w-full text-left">
-                        <thead><tr className="border-b border-gray-700"><th className="p-4">Code</th><th className="p-4">Type</th><th className="p-4">Value</th><th className="p-4">Min Order</th><th className="p-4">Expires</th><th className="p-4">Status</th></tr></thead>
+                        <thead>
+                            <tr className="border-b border-gray-700 text-gray-400 uppercase text-xs">
+                                <th className="p-4">Code</th>
+                                <th className="p-4">Limit</th>
+                                <th className="p-4">Type</th>
+                                <th className="p-4">Value</th>
+                                <th className="p-4">Min Order</th>
+                                <th className="p-4">Expires</th>
+                                <th className="p-4">Status</th>
+                            </tr>
+                        </thead>
                         <tbody>
-                            {isLoading ? <tr><td colSpan="6" className="text-center p-4">Loading...</td></tr> : coupons.map(c => (
-                                <tr key={c.id} className="border-b border-gray-700">
-                                    <td className="p-4 font-mono font-bold">{c.id}</td>
+                            {isLoading ? (
+                                <tr><td colSpan="7" className="text-center p-4">Loading...</td></tr>
+                            ) : coupons.map(c => (
+                                <tr key={c.id} className="border-b border-gray-700 text-gray-300">
+                                    <td className="p-4 font-mono font-bold text-white">{c.id}</td>
+                                    <td className="p-4">
+                                        <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${c.usageLimit === 'unlimited' ? 'bg-blue-900 text-blue-300' : 'bg-purple-900 text-purple-300'}`}>
+                                            {c.usageLimit || 'Once'}
+                                        </span>
+                                    </td>
                                     <td className="p-4 capitalize">{c.type}</td>
                                     <td className="p-4">{c.type === 'fixed' ? `₹${c.value}` : `${c.value}%`}</td>
                                     <td className="p-4">₹{c.minOrderValue}</td>
-                                    <td className="p-4">{c.expiryDate.toDate().toLocaleDateString()}</td>
+                                    <td className="p-4">{c.expiryDate?.toDate ? c.expiryDate.toDate().toLocaleDateString() : 'N/A'}</td>
                                     <td className="p-4">
-                                        <button onClick={() => handleToggleActive(c.id, c.isActive)} className="flex items-center gap-2">
+                                        <button onClick={() => handleToggleActive(c.id, c.isActive)} className="flex items-center gap-2 transition-colors">
                                             {c.isActive ? <ToggleRight size={24} className="text-green-400"/> : <ToggleLeft size={24} className="text-gray-500"/>}
-                                            {c.isActive ? 'Active' : 'Inactive'}
+                                            <span className={c.isActive ? 'text-green-400' : 'text-gray-500'}>{c.isActive ? 'Active' : 'Inactive'}</span>
                                         </button>
                                     </td>
                                 </tr>
