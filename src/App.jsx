@@ -1345,7 +1345,8 @@ const CouponsView = () => {
         type: 'fixed',
         value: 0,
         minOrderValue: 0,
-        expiryDate: ''
+        expiryDate: '',
+        usageLimit: 'once' 
     });
 
     useEffect(() => {
@@ -1375,12 +1376,13 @@ const CouponsView = () => {
             type: newCoupon.type,
             value: Number(newCoupon.value),
             minOrderValue: Number(newCoupon.minOrderValue),
+            usageLimit: newCoupon.usageLimit, // <--- SAVE TO FIRESTORE
             isActive: true,
             createdAt: serverTimestamp(),
             expiryDate: new Date(newCoupon.expiryDate)
         });
         
-        setNewCoupon({ code: '', type: 'fixed', value: 0, minOrderValue: 0, expiryDate: '' });
+        setNewCoupon({ code: '', type: 'fixed', value: 0, minOrderValue: 0, expiryDate: '', usageLimit: 'once' });
     };
 
     const handleToggleActive = async (couponId, currentStatus) => {
@@ -1397,6 +1399,25 @@ const CouponsView = () => {
                 <h2 className="text-xl font-bold mb-4">Create New Coupon</h2>
                 <form onSubmit={handleCreateCoupon} className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
                     <input name="code" value={newCoupon.code} onChange={handleInputChange} placeholder="Coupon Code (e.g., WELCOME50)" className="bg-gray-700 border border-gray-600 rounded-lg p-2" required />
+                    <div className="flex flex-col">
+        <label className="text-xs text-gray-400 mb-1">Usage Limit</label>
+        <select name="usageLimit" value={newCoupon.usageLimit} onChange={handleInputChange} className="bg-gray-700 border border-gray-600 rounded-lg p-2">
+            <option value="once">Once Per Mobile Number</option>
+            <option value="unlimited">Unlimited Use</option>
+        </select>
+    </div>
+
+    <select name="type" value={newCoupon.type} onChange={handleInputChange} className="bg-gray-700 border border-gray-600 rounded-lg p-2">
+        <option value="fixed">Fixed Amount (₹)</option>
+        <option value="percentage">Percentage (%)</option>
+    </select>
+    <input name="value" type="number" value={newCoupon.value} onChange={handleInputChange} placeholder="Discount Value" className="bg-gray-700 border border-gray-600 rounded-lg p-2" required />
+    <input name="minOrderValue" type="number" value={newCoupon.minOrderValue} onChange={handleInputChange} placeholder="Min Order (₹)" className="bg-gray-700 border border-gray-600 rounded-lg p-2" required />
+    <input name="expiryDate" type="date" value={newCoupon.expiryDate} onChange={handleInputChange} className="bg-gray-700 border border-gray-600 rounded-lg p-2" required />
+
+    <button type="submit" className="bg-green-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-green-700 flex items-center justify-center gap-2">
+        <PlusCircle size={18}/>Create
+    </button>
                     <select name="type" value={newCoupon.type} onChange={handleInputChange} className="bg-gray-700 border border-gray-600 rounded-lg p-2">
                         <option value="fixed">Fixed Amount (₹)</option>
                         <option value="percentage">Percentage (%)</option>
