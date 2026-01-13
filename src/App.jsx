@@ -419,12 +419,12 @@ const DashboardView = () => {
             </div>
 
             {/* Top Stat Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                <StatCard title="Total Restaurants" value={stats.restaurants} icon={<Store className="text-blue-400"/>} trend="+2 this month" />
-                <StatCard title="New Signups" value={stats.users} icon={<Users className="text-green-400"/>} trend="Last 7 Days" />
-                <StatCard title="Total Orders" value={stats.orders} icon={<ShoppingBag className="text-orange-400"/>} trend="Active Period" />
-                <StatCard title="Avg. Session" value={stats.avgSession || "0m"} icon={<Clock className="text-purple-400"/>} trend="Engagement" />
-            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+    <StatCard title="Total Restaurants" value={stats.restaurants} icon={<Store className="text-blue-400"/>} trend="+2" />
+    <StatCard title="New Signups" value={stats.users} icon={<Users className="text-green-400"/>} trend="Last 7D" />
+    <StatCard title="Total Orders" value={stats.orders} icon={<ShoppingBag className="text-orange-400"/>} trend="Live" />
+    <StatCard title="Avg. Session" value={stats.avgSession || "0m"} icon={<Clock className="text-purple-400"/>} trend="Active" />
+</div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                 {/* signup Trend Chart */}
@@ -1284,7 +1284,7 @@ const AllOrdersView = () => {
             <p className="text-gray-400 mt-2">A live feed of all orders across the platform.</p>
             <div className="mt-8 bg-gray-800 p-6 rounded-lg shadow-lg">
                 <div className="overflow-x-auto">
-                    <table className="w-full text-left">
+                    <table className="w-full text-left min-w-[600px]">
                         <thead>
                             <tr className="border-b border-gray-700">
                                 <th className="p-4">Date</th>
@@ -1579,6 +1579,7 @@ const App = () => {
     const [user, setUser] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
     const [view, setView] = useState('dashboard');
+    const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -1605,6 +1606,20 @@ const App = () => {
         await signOut(auth);
     };
 
+    const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
+
+    const navItems = [
+        { id: 'dashboard', label: 'Dashboard', icon: <BarChart2 size={20}/> },
+        { id: 'orders', label: 'All Orders', icon: <ShoppingBag size={20}/> },
+        { id: 'payouts', label: 'Payouts', icon: <DollarSign size={20}/> },
+        { id: 'restaurants', label: 'Restaurants', icon: <Store size={20}/> },
+        { id: 'customers', label: 'Customers', icon: <Users size={20}/> },
+        { id: 'coupons', label: 'Coupons', icon: <Tag size={20}/> },
+        { id: 'messages', label: 'Inbox', icon: <Inbox size={20}/> },
+        { id: 'burn', label: 'Burn Rate', icon: <DollarSign size={20}/> },
+        { id: 'points', label: 'Points', icon: <Gift size={20}/> },
+    ];
+
     const renderView = () => {
         switch(view) {
             case 'dashboard': return <DashboardView />;
@@ -1620,50 +1635,67 @@ const App = () => {
         }
     };
 
-    if (isLoading) {
-        return <div className="flex items-center justify-center min-h-screen bg-gray-900"><Loader2 className="animate-spin text-green-400" size={48} /></div>;
-    }
+    if (isLoading) return <div className="flex items-center justify-center min-h-screen bg-gray-900"><Loader2 className="animate-spin text-green-400" size={48} /></div>;
 
     return (
         <>
             {!user ? (
                 <AdminLoginPage />
             ) : (
-                <div className="flex min-h-screen bg-gray-900 text-gray-300">
-                    <nav className="w-64 bg-gray-800 shadow-lg flex-shrink-0">
-                        <div className="p-6 border-b border-gray-700"><h2 className="text-2xl font-bold text-green-400">Snaccit HQ</h2></div>
-                        <ul className="py-4">
-                            <li onClick={() => setView('dashboard')} className={`px-6 py-3 flex items-center cursor-pointer ${view === 'dashboard' ? 'bg-gray-700 text-white font-semibold' : 'hover:bg-gray-700/50'}`}><BarChart2 className="mr-3" size={20}/> Dashboard</li>
-                            <li onClick={() => setView('orders')} className={`px-6 py-3 flex items-center cursor-pointer ${view === 'orders' ? 'bg-gray-700 text-white font-semibold' : 'hover:bg-gray-700/50'}`}><ShoppingBag className="mr-3" size={20}/> All Orders</li>
-                            <li onClick={() => setView('payouts')} className={`px-6 py-3 flex items-center cursor-pointer ${view === 'payouts' ? 'bg-gray-700 text-white font-semibold' : 'hover:bg-gray-700/50'}`}><DollarSign className="mr-3" size={20}/> Payouts & Reports</li>
-                            <li onClick={() => setView('restaurants')} className={`px-6 py-3 flex items-center cursor-pointer ${view === 'restaurants' ? 'bg-gray-700 text-white font-semibold' : 'hover:bg-gray-700/50'}`}><Store className="mr-3" size={20}/> Restaurants</li>
-                            <li onClick={() => setView('customers')} className={`px-6 py-3 flex items-center cursor-pointer ${view === 'customers' ? 'bg-gray-700 text-white font-semibold' : 'hover:bg-gray-700/50'}`}><Users className="mr-3" size={20}/> Customers</li>
-                            <li onClick={() => setView('coupons')} className={`px-6 py-3 flex items-center cursor-pointer ${view === 'coupons' ? 'bg-gray-700 text-white font-semibold' : 'hover:bg-gray-700/50'}`}><Tag className="mr-3" size={20}/> Coupons</li>
-                            <li 
-    onClick={() => setView('messages')} 
-    className={`px-6 py-3 flex items-center cursor-pointer ${view === 'messages' ? 'bg-gray-700 text-white font-semibold' : 'hover:bg-gray-700/50'}`}
->
-    <Inbox className="mr-3" size={20}/> Inbox
-</li>
+                <div className="flex h-screen bg-gray-900 text-gray-300 overflow-hidden">
+                    {/* Mobile Sidebar Overlay */}
+                    {isSidebarOpen && (
+                        <div 
+                            className="fixed inset-0 bg-black/60 z-40 lg:hidden backdrop-blur-sm"
+                            onClick={() => setIsSidebarOpen(false)}
+                        ></div>
+                    )}
 
-<li onClick={() => setView('burn')} className={`px-6 py-3 flex items-center cursor-pointer transition-colors ${view === 'burn' ? 'bg-gray-700 text-white font-semibold' : 'hover:bg-gray-700/50'}`}>
-    <DollarSign className="mr-3" size={20}/> Burn Rate
-</li>
-
-<li 
-    onClick={() => setView('points')} 
-    className={`px-6 py-3 flex items-center cursor-pointer ${view === 'points' ? 'bg-gray-700 text-white font-semibold' : 'hover:bg-gray-700/50'}`}
->
-    <Gift className="mr-3" size={20}/> Points Manager
-</li>
+                    {/* Sidebar */}
+                    <nav className={`
+                        fixed inset-y-0 left-0 z-50 w-64 bg-gray-800 shadow-xl transition-transform duration-300 transform
+                        lg:relative lg:translate-x-0
+                        ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+                    `}>
+                        <div className="p-6 border-b border-gray-700 flex justify-between items-center">
+                            <h2 className="text-2xl font-bold text-green-400">Snaccit HQ</h2>
+                            <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden text-gray-400">
+                                <XSquare size={24} />
+                            </button>
+                        </div>
+                        <ul className="py-4 overflow-y-auto h-[calc(100vh-160px)]">
+                            {navItems.map((item) => (
+                                <li 
+                                    key={item.id}
+                                    onClick={() => { setView(item.id); setIsSidebarOpen(false); }} 
+                                    className={`px-6 py-3 flex items-center cursor-pointer transition-colors ${view === item.id ? 'bg-green-600/10 text-green-400 border-r-4 border-green-500' : 'hover:bg-gray-700/50'}`}
+                                >
+                                    <span className="mr-3">{item.icon}</span> {item.label}
+                                </li>
+                            ))}
                         </ul>
-                        <div className="absolute bottom-0 w-64 p-6 border-t border-gray-700">
-                            <button onClick={handleLogout} className="w-full flex items-center justify-center px-4 py-2 font-semibold text-gray-300 bg-gray-700 rounded-lg hover:bg-gray-600"><LogOut className="mr-2" size={16}/>Logout</button>
+                        <div className="absolute bottom-0 w-64 p-6 border-t border-gray-700 bg-gray-800">
+                            <button onClick={handleLogout} className="w-full flex items-center justify-center px-4 py-2 font-semibold text-gray-300 bg-gray-700 rounded-lg hover:bg-gray-600">
+                                <LogOut className="mr-2" size={16}/>Logout
+                            </button>
                         </div>
                     </nav>
-                    <main className="flex-1 p-10 overflow-y-auto">
-                        {renderView()}
-                    </main>
+
+                    {/* Main Content Area */}
+                    <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+                        {/* Mobile Top Header */}
+                        <header className="lg:hidden flex items-center justify-between p-4 bg-gray-800 border-b border-gray-700">
+                            <button onClick={toggleSidebar} className="p-2 text-gray-400 bg-gray-700 rounded-lg">
+                                <Search size={20} /> {/* Or a Menu Icon */}
+                            </button>
+                            <h2 className="text-xl font-bold text-green-400">Snaccit HQ</h2>
+                            <div className="w-10"></div> {/* Spacer */}
+                        </header>
+
+                        <main className="flex-1 p-4 md:p-10 overflow-y-auto">
+                            {renderView()}
+                        </main>
+                    </div>
                 </div>
             )}
         </>
