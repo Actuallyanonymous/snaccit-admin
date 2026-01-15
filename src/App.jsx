@@ -291,116 +291,104 @@ const DashboardView = () => {
     const [chartData, setChartData] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [timeRange, setTimeRange] = useState(7); // Default 7 days
+    const [wowData, setWowData] = useState([]);
 
     useEffect(() => {
-        // 1. Totals Listeners (Keep your existing totals)
-        const unsubResto = onSnapshot(collection(db, "restaurants"), s => setStats(p => ({ ...p, restaurants: s.size })));
-        
-        // 2. Fetch Data for Trends
-        const fetchData = async () => {
-    setIsLoading(true);
-    try {
-        const now = new Date();
-        const startOfRange = new Date();
-        startOfRange.setDate(now.getDate() - timeRange);
+    const unsubResto = onSnapshot(collection(db, "restaurants"), s => setStats(p => ({ ...p, restaurants: s.size })));
+    
+    const fetchData = async () => {
+        setIsLoading(true);
+        try {
+            const now = new Date();
+            const startOfCurrent = new Date();
+            startOfCurrent.setDate(now.getDate() - timeRange);
+            
+            const startOfPrevious = new Date();
+            startOfPrevious.setDate(now.getDate() - (timeRange * 2));
 
-        // 1. Create Queries
-        const userQ = query(collection(db, "users"), where("createdAt", ">=", startOfRange));
-        const orderQ = query(collection(db, "orders"), where("createdAt", ">=", startOfRange));
-        const activityQ = query(collection(db, "activity_logs"), where("createdAt", ">=", startOfRange));
+            // 1. Fetch data for the full 2x range
+            const userQ = query(collection(db, "users"), where("createdAt", ">=", startOfPrevious));
+            const orderQ = query(collection(db, "orders"), where("createdAt", ">=", startOfPrevious));
+            const activityQ = query(collection(db, "activity_logs"), where("createdAt", ">=", startOfPrevious));
 
-        // 2. Fetch all data in parallel
-        const [userSnap, orderSnap, activitySnap] = await Promise.all([
-            getDocs(userQ), 
-            getDocs(orderQ), 
-            getDocs(activityQ)
-        ]);
+            const [userSnap, orderSnap, activitySnap] = await Promise.all([
+                getDocs(userQ), getDocs(orderQ), getDocs(activityQ)
+            ]);
 
-        const dailyData = {};
+            // 2. Initialize Buckets for WoW
+            let currentUsers = 0, prevUsers = 0;
+            let currentRev = 0, prevRev = 0;
+            const dailyData = {};
 
-        for (let i = 0; i <= timeRange; i++) {
-    const d = new Date();
-    d.setDate(now.getDate() - i);
-    const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    dailyData[dateStr] = { 
-        date: dateStr, 
-        signups: 0, 
-        successfulOrders: 0, // Changed from 'orders'
-        failedOrders: 0,     // Added new counter
-        totalMinutes: 0, 
-        sessionCount: 0, 
-        avgTime: 0 
-    };
-}
+            // Helper to check if date is in current period
+            const isCurrent = (date) => date >= startOfCurrent;
 
-        // 4. Map Signups (Adding safety check for createdAt)
-        userSnap.forEach(doc => {
-            const data = doc.data();
-            if (data.createdAt) {
-                const date = data.createdAt.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                if (dailyData[date]) dailyData[date].signups++;
-            }
-        });
-
-        //5. Map Orders (Updated with Status Logic)
-orderSnap.forEach(doc => {
-    const data = doc.data();
-    if (data.createdAt) {
-        const date = data.createdAt.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-        if (dailyData[date]) {
-            // Logic: Successful are those that moved past the payment gate
-            const successStatuses = ['pending', 'accepted', 'preparing', 'ready', 'completed'];
-            if (successStatuses.includes(data.status)) {
-                dailyData[date].successfulOrders++;
-            } else if (data.status === 'payment_failed') {
-                dailyData[date].failedOrders++;
-            }
-        }
-    }
-});
-
-        // 6. Map Activity Logs
-        activitySnap.forEach(doc => {
-            const data = doc.data();
-            if (data.createdAt) {
-                const date = data.createdAt.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                if (dailyData[date]) {
-                    dailyData[date].totalMinutes += (data.duration || 0);
-                    dailyData[date].sessionCount += 1;
+            // 3. Process Users
+            userSnap.forEach(doc => {
+                const data = doc.data();
+                if (!data.createdAt) return;
+                const d = data.createdAt.toDate();
+                if (isCurrent(d)) currentUsers++; else prevUsers++;
+                
+                // Keep existing daily trend logic
+                if (isCurrent(d)) {
+                    const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                    if (!dailyData[dateStr]) dailyData[dateStr] = { date: dateStr, signups: 0, successfulOrders: 0, failedOrders: 0, totalMinutes: 0, sessionCount: 0 };
+                    dailyData[dateStr].signups++;
                 }
-            }
-        });
+            });
 
-        const finalData = Object.values(dailyData).map(day => ({
-            ...day,
-            avgTime: day.sessionCount > 0 ? Math.round(day.totalMinutes / day.sessionCount) : 0
-        })).reverse();
+            // 4. Process Orders
+            orderSnap.forEach(doc => {
+                const data = doc.data();
+                if (!data.createdAt) return;
+                const d = data.createdAt.toDate();
+                const successStatuses = ['pending', 'accepted', 'preparing', 'ready', 'completed'];
+                const isSuccess = successStatuses.includes(data.status);
+                const orderVal = data.total || 0;
 
-        const totalPeriodMins = finalData.reduce((acc, curr) => acc + curr.totalMinutes, 0);
-        const totalPeriodSessions = finalData.reduce((acc, curr) => acc + curr.sessionCount, 0);
-        const overallAvg = totalPeriodSessions > 0 ? Math.round(totalPeriodMins / totalPeriodSessions) : 0;
+                if (isCurrent(d)) {
+                    if (isSuccess) currentRev += orderVal;
+                } else {
+                    if (isSuccess) prevRev += orderVal;
+                }
 
-        setChartData(finalData);
-        
-        // Update stats using functional update to ensure you don't lose restaurant count
-        setStats(prev => ({ 
-            ...prev,
-            users: userSnap.size, 
-            orders: orderSnap.size,
-            avgSession: `${overallAvg}m` 
-        }));
+                if (isCurrent(d) && dailyData[d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })]) {
+                    const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                    if (isSuccess) dailyData[dateStr].successfulOrders++;
+                    else if (data.status === 'payment_failed') dailyData[dateStr].failedOrders++;
+                }
+            });
 
-    } catch (error) {
-        console.error("Dashboard Data Fetch Error:", error);
-        // You can add an alert or notification here
-    } finally {
-        setIsLoading(false); // This ensures the spinner stops even if there's an error
-    }
-};
+            // 5. Calculate WoW Growth Percentage
+            const calcGrowth = (curr, prev) => prev === 0 ? 100 : Math.round(((curr - prev) / prev) * 100);
 
-        fetchData();
-        return () => unsubResto();
-    }, [timeRange]);
+            setWowData([
+                { name: 'Revenue', current: currentRev, previous: prevRev, growth: calcGrowth(currentRev, prevRev) },
+                { name: 'Users', current: currentUsers, previous: prevUsers, growth: calcGrowth(currentUsers, prevUsers) }
+            ]);
+
+            // 6. Map Daily Trend for existing charts
+            const finalChartData = Object.values(dailyData).reverse();
+            setChartData(finalChartData);
+            
+            setStats(prev => ({ 
+                ...prev, 
+                users: currentUsers, 
+                orders: orderSnap.docs.filter(d => d.data().createdAt?.toDate() >= startOfCurrent).length,
+                revenue: currentRev
+            }));
+
+        } catch (error) {
+            console.error("Dashboard Data Fetch Error:", error);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    fetchData();
+    return () => unsubResto();
+}, [timeRange]);
 
     if (isLoading) {
         return <div className="flex justify-center items-center h-64"><Loader2 className="animate-spin text-green-400" size={32} /></div>;
@@ -492,6 +480,92 @@ orderSnap.forEach(doc => {
                 <Bar dataKey="failedOrders" fill="#ef4444" radius={[4, 4, 0, 0]} />
             </BarChart>
         </ResponsiveContainer>
+    </div>
+</div>
+
+{/* --- NEW SECTION: WoW GROWTH ANALYTICS --- */}
+<div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+    
+    {/* Revenue Growth Graph */}
+    <div className="bg-gray-800 p-6 rounded-2xl border border-gray-700 shadow-xl">
+        <div className="flex justify-between items-start mb-6">
+            <div>
+                <h3 className="text-lg font-bold text-gray-200 flex items-center gap-2">
+                    <DollarSign size={20} className="text-blue-400"/> Revenue WoW Growth
+                </h3>
+                <p className="text-xs text-gray-500">Comparing current vs previous {timeRange} days</p>
+            </div>
+            <span className={`px-3 py-1 rounded-full text-xs font-black ${wowData[0]?.growth >= 0 ? 'bg-green-900/50 text-green-400' : 'bg-red-900/50 text-red-400'}`}>
+                {wowData[0]?.growth >= 0 ? '+' : ''}{wowData[0]?.growth}%
+            </span>
+        </div>
+        <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={[wowData[0]]} layout="vertical" margin={{ left: 20, right: 20 }}>
+                    <XAxis type="number" hide />
+                    <YAxis type="category" dataKey="name" hide />
+                    <Tooltip cursor={{fill: 'transparent'}} content={({ active, payload }) => {
+                        if (active && payload && payload.length) {
+                            return (
+                                <div className="bg-gray-900 p-4 border border-gray-700 rounded-lg shadow-xl">
+                                    <p className="text-gray-400 text-xs uppercase font-bold mb-2">Revenue Comparison</p>
+                                    <p className="text-white text-sm">Current: <span className="font-bold text-blue-400">₹{payload[0].value}</span></p>
+                                    <p className="text-white text-sm">Previous: <span className="font-bold text-gray-400">₹{payload[1].value}</span></p>
+                                </div>
+                            );
+                        }
+                        return null;
+                    }} />
+                    <Bar dataKey="current" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={40} name="Current Period" />
+                    <Bar dataKey="previous" fill="#475569" radius={[0, 4, 4, 0]} barSize={40} name="Previous Period" />
+                </BarChart>
+            </ResponsiveContainer>
+        </div>
+        <div className="flex justify-center gap-6 mt-2">
+            <div className="flex items-center gap-2 text-xs font-bold text-gray-400"><span className="w-3 h-3 bg-blue-500 rounded-full"></span> Current Period</div>
+            <div className="flex items-center gap-2 text-xs font-bold text-gray-400"><span className="w-3 h-3 bg-gray-600 rounded-full"></span> Previous Period</div>
+        </div>
+    </div>
+
+    {/* User Growth Graph */}
+    <div className="bg-gray-800 p-6 rounded-2xl border border-gray-700 shadow-xl">
+        <div className="flex justify-between items-start mb-6">
+            <div>
+                <h3 className="text-lg font-bold text-gray-200 flex items-center gap-2">
+                    <Users size={20} className="text-green-400"/> User Base Growth
+                </h3>
+                <p className="text-xs text-gray-500">Comparing signups WoW</p>
+            </div>
+            <span className={`px-3 py-1 rounded-full text-xs font-black ${wowData[1]?.growth >= 0 ? 'bg-green-900/50 text-green-400' : 'bg-red-900/50 text-red-400'}`}>
+                {wowData[1]?.growth >= 0 ? '+' : ''}{wowData[1]?.growth}%
+            </span>
+        </div>
+        <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={[wowData[1]]} layout="vertical" margin={{ left: 20, right: 20 }}>
+                    <XAxis type="number" hide />
+                    <YAxis type="category" dataKey="name" hide />
+                    <Tooltip cursor={{fill: 'transparent'}} content={({ active, payload }) => {
+                         if (active && payload && payload.length) {
+                            return (
+                                <div className="bg-gray-900 p-4 border border-gray-700 rounded-lg shadow-xl">
+                                    <p className="text-gray-400 text-xs uppercase font-bold mb-2">User Comparison</p>
+                                    <p className="text-white text-sm">Current: <span className="font-bold text-green-400">{payload[0].value} New</span></p>
+                                    <p className="text-white text-sm">Previous: <span className="font-bold text-gray-400">{payload[1].value} New</span></p>
+                                </div>
+                            );
+                        }
+                        return null;
+                    }} />
+                    <Bar dataKey="current" fill="#10b981" radius={[0, 4, 4, 0]} barSize={40} />
+                    <Bar dataKey="previous" fill="#475569" radius={[0, 4, 4, 0]} barSize={40} />
+                </BarChart>
+            </ResponsiveContainer>
+        </div>
+        <div className="flex justify-center gap-6 mt-2">
+            <div className="flex items-center gap-2 text-xs font-bold text-gray-400"><span className="w-3 h-3 bg-green-500 rounded-full"></span> Current Period</div>
+            <div className="flex items-center gap-2 text-xs font-bold text-gray-400"><span className="w-3 h-3 bg-gray-600 rounded-full"></span> Previous Period</div>
+        </div>
     </div>
 </div>
 
