@@ -287,117 +287,106 @@ const PointsManagerView = () => {
 
 // --- Dashboard View (Enhanced with Trends) ---
 const DashboardView = () => {
-    const [stats, setStats] = useState({ restaurants: 0, users: 0, orders: 0 });
+    const [stats, setStats] = useState({ restaurants: 0, users: 0, orders: 0, avgSession: "0m" });
     const [chartData, setChartData] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
-    const [timeRange, setTimeRange] = useState(7); // Default 7 days
+    const [timeRange, setTimeRange] = useState(7);
 
     useEffect(() => {
-        // 1. Totals Listeners (Keep your existing totals)
-        const unsubResto = onSnapshot(collection(db, "restaurants"), s => setStats(p => ({ ...p, restaurants: s.size })));
-        
-        // 2. Fetch Data for Trends
+        // 1. Live listener for restaurant count
+        const unsubResto = onSnapshot(collection(db, "restaurants"), s => {
+            setStats(prev => ({ ...prev, restaurants: s.size }));
+        });
+
         const fetchData = async () => {
-    setIsLoading(true);
-    try {
-        const now = new Date();
-        // 1. Normalize startOfRange to the very beginning of the day (Midnight)
-        const startOfRange = new Date(now.getFullYear(), now.getMonth(), now.getDate() - timeRange);
+            setIsLoading(true);
+            try {
+                const now = new Date();
+                // Start from the beginning of the day (midnight)
+                const startOfRange = new Date(now.getFullYear(), now.getMonth(), now.getDate() - timeRange);
 
-        const userQ = query(collection(db, "users"), where("createdAt", ">=", startOfRange));
-        const orderQ = query(collection(db, "orders"), where("createdAt", ">=", startOfRange));
-        const activityQ = query(collection(db, "activity_logs"), where("createdAt", ">=", startOfRange));
+                // 2. Fetch data
+                const userQ = query(collection(db, "users"), where("createdAt", ">=", startOfRange));
+                const orderQ = query(collection(db, "orders"), where("createdAt", ">=", startOfRange));
+                const activityQ = query(collection(db, "activity_logs"), where("createdAt", ">=", startOfRange));
 
-        const [userSnap, orderSnap, activitySnap] = await Promise.all([
-            getDocs(userQ), 
-            getDocs(orderQ), 
-            getDocs(activitySnap)
-        ]);
+                const [userSnap, orderSnap, activitySnap] = await Promise.all([
+                    getDocs(userQ),
+                    getDocs(orderQ),
+                    getDocs(activitySnap)
+                ]);
 
-        const dailyData = {};
+                // 3. Initialize daily map
+                const dailyData = {};
+                const formatDate = (date) => date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 
-        // 2. Standardized Date Formatter to ensure keys always match
-        const formatDate = (date) => {
-            return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-        };
+                for (let i = 0; i <= timeRange; i++) {
+                    const d = new Date();
+                    d.setDate(now.getDate() - i);
+                    const dateStr = formatDate(d);
+                    dailyData[dateStr] = { 
+                        date: dateStr, 
+                        signups: 0, 
+                        successfulOrders: 0, 
+                        failedOrders: 0, 
+                        totalMinutes: 0, 
+                        sessionCount: 0 
+                    };
+                }
 
-        // 3. Initialize the date map
-        for (let i = 0; i <= timeRange; i++) {
-            const d = new Date();
-            d.setDate(now.getDate() - i);
-            const dateStr = formatDate(d); // Use helper
-            dailyData[dateStr] = { 
-                date: dateStr, 
-                signups: 0, 
-                successfulOrders: 0, 
-                failedOrders: 0, 
-                totalMinutes: 0, 
-                sessionCount: 0 
-            };
-        }
+                // 4. Populate Map
+                userSnap.forEach(doc => {
+                    const data = doc.data();
+                    const dateKey = data.createdAt?.toDate ? formatDate(data.createdAt.toDate()) : null;
+                    if (dateKey && dailyData[dateKey]) dailyData[dateKey].signups++;
+                });
 
-        // 4. Map Signups
-        userSnap.forEach(doc => {
-            const data = doc.data();
-            if (data.createdAt?.toDate) {
-                const dateKey = formatDate(data.createdAt.toDate());
-                if (dailyData[dateKey]) dailyData[dateKey].signups++;
-            }
-        });
-
-        // 5. Map Orders (Logic for Success vs Failure)
-        orderSnap.forEach(doc => {
-            const data = doc.data();
-            if (data.createdAt?.toDate) {
-                const dateKey = formatDate(data.createdAt.toDate());
-                if (dailyData[dateKey]) {
-                    // Check status - make sure strings match your DB exactly
-                    if (data.status === 'declined' || data.status === 'failed') {
-                        dailyData[dateKey].failedOrders++;
-                    } else {
-                        dailyData[dateKey].successfulOrders++;
+                orderSnap.forEach(doc => {
+                    const data = doc.data();
+                    const dateKey = data.createdAt?.toDate ? formatDate(data.createdAt.toDate()) : null;
+                    if (dateKey && dailyData[dateKey]) {
+                        if (data.status === 'declined' || data.status === 'failed') {
+                            dailyData[dateKey].failedOrders++;
+                        } else {
+                            dailyData[dateKey].successfulOrders++;
+                        }
                     }
-                }
+                });
+
+                activitySnap.forEach(doc => {
+                    const data = doc.data();
+                    const dateKey = data.createdAt?.toDate ? formatDate(data.createdAt.toDate()) : null;
+                    if (dateKey && dailyData[dateKey]) {
+                        dailyData[dateKey].totalMinutes += (data.duration || 0);
+                        dailyData[dateKey].sessionCount += 1;
+                    }
+                });
+
+                // 5. Finalize Data
+                const formattedList = Object.values(dailyData).reverse().map(day => ({
+                    ...day,
+                    avgTime: day.sessionCount > 0 ? Math.round(day.totalMinutes / day.sessionCount) : 0
+                }));
+
+                // Calculate Overall Average Session for the stats card
+                const totalMins = formattedList.reduce((acc, curr) => acc + curr.totalMinutes, 0);
+                const totalSessions = formattedList.reduce((acc, curr) => acc + curr.sessionCount, 0);
+                const overallAvg = totalSessions > 0 ? Math.round(totalMins / totalSessions) : 0;
+
+                setChartData(formattedList);
+                setStats(prev => ({
+                    ...prev,
+                    users: userSnap.size,
+                    orders: orderSnap.size,
+                    avgSession: `${overallAvg}m`
+                }));
+
+            } catch (error) {
+                console.error("Dashboard Data Fetch Error:", error);
+            } finally {
+                setIsLoading(false);
             }
-        });
-
-        // 6. Map Activity Logs
-        activitySnap.forEach(doc => {
-            const data = doc.data();
-            if (data.createdAt?.toDate) {
-                const dateKey = formatDate(data.createdAt.toDate());
-                if (dailyData[dateKey]) {
-                    dailyData[dateKey].totalMinutes += (data.duration || 0);
-                    dailyData[dateKey].sessionCount += 1;
-                }
-            }
-        });
-
-        // Convert object to array and reverse to chronological order
-        const finalData = Object.values(dailyData).reverse().map(day => ({
-            ...day,
-            avgTime: day.sessionCount > 0 ? Math.round(day.totalMinutes / day.sessionCount) : 0
-        }));
-
-        const totalPeriodMins = finalData.reduce((acc, curr) => acc + curr.totalMinutes, 0);
-        const totalPeriodSessions = finalData.reduce((acc, curr) => acc + curr.sessionCount, 0);
-        const overallAvg = totalPeriodSessions > 0 ? Math.round(totalPeriodMins / totalPeriodSessions) : 0;
-
-        setChartData(finalData);
-        
-        setStats(prev => ({ 
-            ...prev,
-            users: userSnap.size, 
-            orders: orderSnap.size,
-            avgSession: `${overallAvg}m` 
-        }));
-
-    } catch (error) {
-        console.error("Dashboard Data Fetch Error:", error);
-    } finally {
-        setIsLoading(false);
-    }
-};
+        };
 
         fetchData();
         return () => unsubResto();
@@ -412,12 +401,12 @@ const DashboardView = () => {
             <div className="flex justify-between items-center">
                 <div>
                     <h1 className="text-3xl font-bold text-gray-100">Executive Overview</h1>
-                    <p className="text-gray-400 mt-1">Tracking growth and engagement trends.</p>
+                    <p className="text-gray-400 mt-1">Growth and order health metrics.</p>
                 </div>
                 <div className="flex bg-gray-800 p-1 rounded-lg border border-gray-700">
                     {[7, 30].map(days => (
                         <button 
-                            key={days}
+                            key={days} 
                             onClick={() => setTimeRange(days)}
                             className={`px-4 py-1.5 rounded-md text-sm font-bold transition-all ${timeRange === days ? 'bg-green-600 text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}
                         >
@@ -427,92 +416,86 @@ const DashboardView = () => {
                 </div>
             </div>
 
-            {/* Top Stat Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
-    <StatCard title="Total Restaurants" value={stats.restaurants} icon={<Store className="text-blue-400"/>} trend="+2" />
-    <StatCard title="New Signups" value={stats.users} icon={<Users className="text-green-400"/>} trend="Last 7D" />
-    <StatCard title="Total Orders" value={stats.orders} icon={<ShoppingBag className="text-orange-400"/>} trend="Live" />
-    <StatCard title="Avg. Session" value={stats.avgSession || "0m"} icon={<Clock className="text-purple-400"/>} trend="Active" />
-</div>
+            {/* Stat Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                <StatCard title="Partner Restos" value={stats.restaurants} icon={<Store className="text-blue-400"/>} trend="+2" />
+                <StatCard title="New Signups" value={stats.users} icon={<Users className="text-green-400"/>} trend="Last 7D" />
+                <StatCard title="Total Orders" value={stats.orders} icon={<ShoppingBag className="text-orange-400"/>} trend="Live" />
+                <StatCard title="Avg. Session" value={stats.avgSession} icon={<Clock className="text-purple-400"/>} trend="Active" />
+            </div>
 
+            {/* Charts Section */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                {/* signup Trend Chart */}
+                {/* Signup Trend */}
                 <div className="bg-gray-800 p-6 rounded-2xl border border-gray-700 shadow-xl">
                     <h3 className="text-lg font-bold text-gray-200 mb-6 flex items-center gap-2">
-                        <Users size={20} className="text-green-400"/> Customer Sign-up Trend
+                        <Users size={20} className="text-green-400"/> Sign-up Trend
                     </h3>
                     <div className="h-64">
                         <ResponsiveContainer width="100%" height="100%">
                             <AreaChart data={chartData}>
-                                <defs>
-                                    <linearGradient id="colorSignups" x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="5%" stopColor="#4ade80" stopOpacity={0.3}/>
-                                        <stop offset="95%" stopColor="#4ade80" stopOpacity={0}/>
-                                    </linearGradient>
-                                </defs>
                                 <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
-                                <XAxis dataKey="date" stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} />
-                                <YAxis stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} />
-                                <Tooltip contentStyle={{ backgroundColor: '#1f2937', border: 'none', borderRadius: '8px', color: '#fff' }} />
-                                <Area type="monotone" dataKey="signups" stroke="#4ade80" strokeWidth={3} fillOpacity={1} fill="url(#colorSignups)" />
+                                <XAxis dataKey="date" stroke="#9ca3af" fontSize={12} />
+                                <YAxis stroke="#9ca3af" fontSize={12} />
+                                <Tooltip contentStyle={{ backgroundColor: '#1f2937', border: 'none', borderRadius: '8px' }} />
+                                <Area type="monotone" dataKey="signups" stroke="#4ade80" fill="#4ade8033" strokeWidth={3} />
                             </AreaChart>
                         </ResponsiveContainer>
                     </div>
                 </div>
 
-                {/* --- Successful Orders Chart --- */}
-<div className="bg-gray-800 p-6 rounded-2xl border border-gray-700 shadow-xl">
-    <h3 className="text-lg font-bold text-gray-200 mb-6 flex items-center gap-2">
-        <CheckSquare size={20} className="text-green-400"/> Successful Orders
-    </h3>
-    <div className="h-64">
-        <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
-                <XAxis dataKey="date" stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} />
-                <YAxis stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} />
-                <Tooltip cursor={{fill: '#374151'}} contentStyle={{ backgroundColor: '#1f2937', border: 'none', borderRadius: '8px', color: '#fff' }} />
-                <Bar dataKey="successfulOrders" fill="#10b981" radius={[4, 4, 0, 0]} />
-            </BarChart>
-        </ResponsiveContainer>
-    </div>
-</div>
-
-{/* --- Failed Payments/Orders Chart --- */}
-<div className="bg-gray-800 p-6 rounded-2xl border border-gray-700 shadow-xl">
-    <h3 className="text-lg font-bold text-gray-200 mb-6 flex items-center gap-2">
-        <XSquare size={20} className="text-red-400"/> Failed Payments
-    </h3>
-    <div className="h-64">
-        <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
-                <XAxis dataKey="date" stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} />
-                <YAxis stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} />
-                <Tooltip cursor={{fill: '#374151'}} contentStyle={{ backgroundColor: '#1f2937', border: 'none', borderRadius: '8px', color: '#fff' }} />
-                <Bar dataKey="failedOrders" fill="#ef4444" radius={[4, 4, 0, 0]} />
-            </BarChart>
-        </ResponsiveContainer>
-    </div>
-</div>
-
-                {/* Engagement / Time Spent (Detailed Trend) */}
-                <div className="bg-gray-800 p-6 rounded-2xl border border-gray-700 shadow-xl lg:col-span-2">
+                {/* Successful Orders */}
+                <div className="bg-gray-800 p-6 rounded-2xl border border-gray-700 shadow-xl">
                     <h3 className="text-lg font-bold text-gray-200 mb-6 flex items-center gap-2">
-                        <Clock size={20} className="text-purple-400"/> User Engagement (Average Minutes on Site)
+                        <CheckSquare size={20} className="text-green-400"/> Successful Orders
+                    </h3>
+                    <div className="h-64">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={chartData}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
+                                <XAxis dataKey="date" stroke="#9ca3af" fontSize={12} />
+                                <YAxis stroke="#9ca3af" fontSize={12} />
+                                <Tooltip cursor={{fill: '#374151'}} contentStyle={{ backgroundColor: '#1f2937', border: 'none' }} />
+                                <Bar dataKey="successfulOrders" fill="#10b981" radius={[4, 4, 0, 0]} />
+                            </BarChart>
+                        </ResponsiveContainer>
+                    </div>
+                </div>
+
+                {/* Failed Payments */}
+                <div className="bg-gray-800 p-6 rounded-2xl border border-gray-700 shadow-xl">
+                    <h3 className="text-lg font-bold text-gray-200 mb-6 flex items-center gap-2">
+                        <XSquare size={20} className="text-red-400"/> Failed Payments
+                    </h3>
+                    <div className="h-64">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={chartData}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
+                                <XAxis dataKey="date" stroke="#9ca3af" fontSize={12} />
+                                <YAxis stroke="#9ca3af" fontSize={12} />
+                                <Tooltip cursor={{fill: '#374151'}} contentStyle={{ backgroundColor: '#1f2937', border: 'none' }} />
+                                <Bar dataKey="failedOrders" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                            </BarChart>
+                        </ResponsiveContainer>
+                    </div>
+                </div>
+
+                {/* Avg Session Duration */}
+                <div className="bg-gray-800 p-6 rounded-2xl border border-gray-700 shadow-xl">
+                    <h3 className="text-lg font-bold text-gray-200 mb-6 flex items-center gap-2">
+                        <Clock size={20} className="text-purple-400"/> Daily Avg Engagement (Mins)
                     </h3>
                     <div className="h-64">
                         <ResponsiveContainer width="100%" height="100%">
                             <LineChart data={chartData}>
                                 <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
-                                <XAxis dataKey="date" stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} />
-                                <YAxis stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} />
-                                <Tooltip contentStyle={{ backgroundColor: '#1f2937', border: 'none', borderRadius: '8px', color: '#fff' }} />
-                                <Line type="stepAfter" dataKey="avgTime" stroke="#a855f7" strokeWidth={3} dot={{ r: 4, fill: '#a855f7' }} />
+                                <XAxis dataKey="date" stroke="#9ca3af" fontSize={12} />
+                                <YAxis stroke="#9ca3af" fontSize={12} />
+                                <Tooltip contentStyle={{ backgroundColor: '#1f2937', border: 'none' }} />
+                                <Line type="monotone" dataKey="avgTime" stroke="#a855f7" strokeWidth={3} dot={{ r: 4 }} />
                             </LineChart>
                         </ResponsiveContainer>
                     </div>
-                    <p className="mt-4 text-xs text-gray-500 italic">* Engagement time is calculated based on session logs from the customer app.</p>
                 </div>
             </div>
         </div>
