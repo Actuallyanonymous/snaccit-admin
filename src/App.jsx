@@ -297,94 +297,89 @@ const DashboardView = () => {
     const unsubResto = onSnapshot(collection(db, "restaurants"), s => setStats(p => ({ ...p, restaurants: s.size })));
     
     const fetchData = async () => {
-        setIsLoading(true);
-        try {
-            const now = new Date();
-            const startOfCurrent = new Date();
-            startOfCurrent.setDate(now.getDate() - timeRange);
-            
-            const startOfPrevious = new Date();
-            startOfPrevious.setDate(now.getDate() - (timeRange * 2));
+    setIsLoading(true);
+    try {
+        const now = new Date();
+        const startOfRange = new Date();
+        startOfRange.setDate(now.getDate() - timeRange);
+        startOfRange.setHours(0, 0, 0, 0); // Normalize to start of day
 
-            // 1. Fetch data for the full 2x range
-            const userQ = query(collection(db, "users"), where("createdAt", ">=", startOfPrevious));
-            const orderQ = query(collection(db, "orders"), where("createdAt", ">=", startOfPrevious));
-            const activityQ = query(collection(db, "activity_logs"), where("createdAt", ">=", startOfPrevious));
+        const userQ = query(collection(db, "users"), where("createdAt", ">=", startOfRange));
+        const orderQ = query(collection(db, "orders"), where("createdAt", ">=", startOfRange));
+        const activityQ = query(collection(db, "activity_logs"), where("createdAt", ">=", startOfRange));
 
-            const [userSnap, orderSnap, activitySnap] = await Promise.all([
-                getDocs(userQ), getDocs(orderQ), getDocs(activityQ)
-            ]);
+        const [userSnap, orderSnap, activitySnap] = await Promise.all([
+            getDocs(userQ), 
+            getDocs(orderQ), 
+            getDocs(activityQ)
+        ]);
 
-            // 2. Initialize Buckets for WoW
-            let currentUsers = 0, prevUsers = 0;
-            let currentRev = 0, prevRev = 0;
-            const dailyData = {};
+        const dailyData = {};
 
-            // Helper to check if date is in current period
-            const isCurrent = (date) => date >= startOfCurrent;
-
-            // 3. Process Users
-            userSnap.forEach(doc => {
-                const data = doc.data();
-                if (!data.createdAt) return;
-                const d = data.createdAt.toDate();
-                if (isCurrent(d)) currentUsers++; else prevUsers++;
-                
-                // Keep existing daily trend logic
-                if (isCurrent(d)) {
-                    const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                    if (!dailyData[dateStr]) dailyData[dateStr] = { date: dateStr, signups: 0, successfulOrders: 0, failedOrders: 0, totalMinutes: 0, sessionCount: 0 };
-                    dailyData[dateStr].signups++;
-                }
-            });
-
-            // 4. Process Orders
-            orderSnap.forEach(doc => {
-                const data = doc.data();
-                if (!data.createdAt) return;
-                const d = data.createdAt.toDate();
-                const successStatuses = ['pending', 'accepted', 'preparing', 'ready', 'completed'];
-                const isSuccess = successStatuses.includes(data.status);
-                const orderVal = data.total || 0;
-
-                if (isCurrent(d)) {
-                    if (isSuccess) currentRev += orderVal;
-                } else {
-                    if (isSuccess) prevRev += orderVal;
-                }
-
-                if (isCurrent(d) && dailyData[d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })]) {
-                    const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                    if (isSuccess) dailyData[dateStr].successfulOrders++;
-                    else if (data.status === 'payment_failed') dailyData[dateStr].failedOrders++;
-                }
-            });
-
-            // 5. Calculate WoW Growth Percentage
-            const calcGrowth = (curr, prev) => prev === 0 ? 100 : Math.round(((curr - prev) / prev) * 100);
-
-            setWowData([
-                { name: 'Revenue', current: currentRev, previous: prevRev, growth: calcGrowth(currentRev, prevRev) },
-                { name: 'Users', current: currentUsers, previous: prevUsers, growth: calcGrowth(currentUsers, prevUsers) }
-            ]);
-
-            // 6. Map Daily Trend for existing charts
-            const finalChartData = Object.values(dailyData).reverse();
-            setChartData(finalChartData);
-            
-            setStats(prev => ({ 
-                ...prev, 
-                users: currentUsers, 
-                orders: orderSnap.docs.filter(d => d.data().createdAt?.toDate() >= startOfCurrent).length,
-                revenue: currentRev
-            }));
-
-        } catch (error) {
-            console.error("Dashboard Data Fetch Error:", error);
-        } finally {
-            setIsLoading(false);
+        // Initialize every single day in the range with 0 to prevent empty/broken lines
+        for (let i = 0; i <= timeRange; i++) {
+            const d = new Date();
+            d.setDate(now.getDate() - i);
+            const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            dailyData[dateStr] = { 
+                date: dateStr, 
+                signups: 0, 
+                successfulOrders: 0, 
+                failedOrders: 0, 
+                totalMinutes: 0 
+            };
         }
-    };
+
+        // Map Activity Logs to TOTAL minutes
+        activitySnap.forEach(doc => {
+            const data = doc.data();
+            if (data.createdAt) {
+                const date = data.createdAt.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                if (dailyData[date]) {
+                    // Ensure duration is treated as a number
+                    dailyData[date].totalMinutes += Number(data.duration || 0);
+                }
+            }
+        });
+
+        // Map Signups and Orders (Keeping your existing logic)
+        userSnap.forEach(doc => {
+            const data = doc.data();
+            if (data.createdAt) {
+                const date = data.createdAt.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                if (dailyData[date]) dailyData[date].signups++;
+            }
+        });
+
+        orderSnap.forEach(doc => {
+            const data = doc.data();
+            if (data.createdAt) {
+                const date = data.createdAt.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                if (dailyData[date]) {
+                    const successStatuses = ['pending', 'accepted', 'preparing', 'ready', 'completed'];
+                    if (successStatuses.includes(data.status)) dailyData[date].successfulOrders++;
+                    else if (data.status === 'payment_failed') dailyData[date].failedOrders++;
+                }
+            }
+        });
+
+        const finalData = Object.values(dailyData).reverse();
+        const totalPeriodMins = finalData.reduce((acc, curr) => acc + curr.totalMinutes, 0);
+
+        setChartData(finalData);
+        setStats(prev => ({ 
+            ...prev, 
+            users: userSnap.size, 
+            orders: orderSnap.size,
+            totalEngagement: `${totalPeriodMins}m` 
+        }));
+
+    } catch (error) {
+        console.error("Dashboard Data Fetch Error:", error);
+    } finally {
+        setIsLoading(false);
+    }
+};
 
     fetchData();
     return () => unsubResto();
@@ -569,24 +564,41 @@ const DashboardView = () => {
     </div>
 </div>
 
-                {/* Engagement / Time Spent (Detailed Trend) */}
-                <div className="bg-gray-800 p-6 rounded-2xl border border-gray-700 shadow-xl lg:col-span-2">
-                    <h3 className="text-lg font-bold text-gray-200 mb-6 flex items-center gap-2">
-                        <Clock size={20} className="text-purple-400"/> User Engagement (Average Minutes on Site)
-                    </h3>
-                    <div className="h-64">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <LineChart data={chartData}>
-                                <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
-                                <XAxis dataKey="date" stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} />
-                                <YAxis stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} />
-                                <Tooltip contentStyle={{ backgroundColor: '#1f2937', border: 'none', borderRadius: '8px', color: '#fff' }} />
-                                <Line type="stepAfter" dataKey="avgTime" stroke="#a855f7" strokeWidth={3} dot={{ r: 4, fill: '#a855f7' }} />
-                            </LineChart>
-                        </ResponsiveContainer>
-                    </div>
-                    <p className="mt-4 text-xs text-gray-500 italic">* Engagement time is calculated based on session logs from the customer app.</p>
-                </div>
+                {/* Engagement / Time Spent (Total Minutes) */}
+<div className="bg-gray-800 p-6 rounded-2xl border border-gray-700 shadow-xl lg:col-span-2">
+    <h3 className="text-lg font-bold text-gray-200 mb-6 flex items-center gap-2">
+        <Activity size={20} className="text-purple-400"/> Total User Engagement (Total Minutes on Site)
+    </h3>
+    <div className="h-64">
+        <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={chartData}>
+                <defs>
+                    <linearGradient id="colorMinutes" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#a855f7" stopOpacity={0.3}/>
+                        <stop offset="95%" stopColor="#a855f7" stopOpacity={0}/>
+                    </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
+                <XAxis dataKey="date" stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} />
+                <YAxis stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} unit="m" />
+                <Tooltip 
+                    contentStyle={{ backgroundColor: '#1f2937', border: 'none', borderRadius: '8px', color: '#fff' }}
+                    itemStyle={{ color: '#a855f7' }}
+                    formatter={(value) => [`${value} Minutes`, 'Total Time']}
+                />
+                <Area 
+                    type="monotone" 
+                    dataKey="totalMinutes" 
+                    stroke="#a855f7" 
+                    strokeWidth={3} 
+                    fillOpacity={1} 
+                    fill="url(#colorMinutes)" 
+                />
+            </AreaChart>
+        </ResponsiveContainer>
+    </div>
+    <p className="mt-4 text-xs text-gray-500 italic">* Total engagement is the sum of all session durations recorded from the customer app.</p>
+</div>
             </div>
         </div>
     );
