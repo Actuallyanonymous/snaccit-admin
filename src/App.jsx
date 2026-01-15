@@ -318,20 +318,20 @@ const DashboardView = () => {
 
         const dailyData = {};
 
-        // 3. Initialize the date map
         for (let i = 0; i <= timeRange; i++) {
-            const d = new Date();
-            d.setDate(now.getDate() - i);
-            const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-            dailyData[dateStr] = { 
-                date: dateStr, 
-                signups: 0, 
-                orders: 0, 
-                totalMinutes: 0, 
-                sessionCount: 0, 
-                avgTime: 0 
-            };
-        }
+    const d = new Date();
+    d.setDate(now.getDate() - i);
+    const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    dailyData[dateStr] = { 
+        date: dateStr, 
+        signups: 0, 
+        successfulOrders: 0, // Changed from 'orders'
+        failedOrders: 0,     // Added new counter
+        totalMinutes: 0, 
+        sessionCount: 0, 
+        avgTime: 0 
+    };
+}
 
         // 4. Map Signups (Adding safety check for createdAt)
         userSnap.forEach(doc => {
@@ -342,14 +342,22 @@ const DashboardView = () => {
             }
         });
 
-        // 5. Map Orders
-        orderSnap.forEach(doc => {
-            const data = doc.data();
-            if (data.createdAt) {
-                const date = data.createdAt.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                if (dailyData[date]) dailyData[date].orders++;
+        //5. Map Orders (Updated with Status Logic)
+orderSnap.forEach(doc => {
+    const data = doc.data();
+    if (data.createdAt) {
+        const date = data.createdAt.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        if (dailyData[date]) {
+            // Logic: Successful are those that moved past the payment gate
+            const successStatuses = ['pending', 'accepted', 'preparing', 'ready', 'completed'];
+            if (successStatuses.includes(data.status)) {
+                dailyData[date].successfulOrders++;
+            } else if (data.status === 'payment_failed') {
+                dailyData[date].failedOrders++;
             }
-        });
+        }
+    }
+});
 
         // 6. Map Activity Logs
         activitySnap.forEach(doc => {
@@ -451,23 +459,41 @@ const DashboardView = () => {
                     </div>
                 </div>
 
-                {/* Order Volume Chart */}
-                <div className="bg-gray-800 p-6 rounded-2xl border border-gray-700 shadow-xl">
-                    <h3 className="text-lg font-bold text-gray-200 mb-6 flex items-center gap-2">
-                        <BarChart2 size={20} className="text-blue-400"/> Order Volume Trends
-                    </h3>
-                    <div className="h-64">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={chartData}>
-                                <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
-                                <XAxis dataKey="date" stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} />
-                                <YAxis stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} />
-                                <Tooltip cursor={{fill: '#374151'}} contentStyle={{ backgroundColor: '#1f2937', border: 'none', borderRadius: '8px', color: '#fff' }} />
-                                <Bar dataKey="orders" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                            </BarChart>
-                        </ResponsiveContainer>
-                    </div>
-                </div>
+                {/* --- Successful Order Volume Chart --- */}
+<div className="bg-gray-800 p-6 rounded-2xl border border-gray-700 shadow-xl">
+    <h3 className="text-lg font-bold text-gray-200 mb-6 flex items-center gap-2">
+        <CheckSquare size={20} className="text-green-400"/> Successful Orders
+    </h3>
+    <div className="h-64">
+        <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
+                <XAxis dataKey="date" stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} />
+                <YAxis stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} />
+                <Tooltip cursor={{fill: '#374151'}} contentStyle={{ backgroundColor: '#1f2937', border: 'none', borderRadius: '8px', color: '#fff' }} />
+                <Bar dataKey="successfulOrders" fill="#10b981" radius={[4, 4, 0, 0]} />
+            </BarChart>
+        </ResponsiveContainer>
+    </div>
+</div>
+
+{/* --- Failed Payment Volume Chart --- */}
+<div className="bg-gray-800 p-6 rounded-2xl border border-gray-700 shadow-xl">
+    <h3 className="text-lg font-bold text-gray-200 mb-6 flex items-center gap-2">
+        <XSquare size={20} className="text-red-400"/> Failed Payments
+    </h3>
+    <div className="h-64">
+        <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
+                <XAxis dataKey="date" stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} />
+                <YAxis stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} />
+                <Tooltip cursor={{fill: '#374151'}} contentStyle={{ backgroundColor: '#1f2937', border: 'none', borderRadius: '8px', color: '#fff' }} />
+                <Bar dataKey="failedOrders" fill="#ef4444" radius={[4, 4, 0, 0]} />
+            </BarChart>
+        </ResponsiveContainer>
+    </div>
+</div>
 
                 {/* Engagement / Time Spent (Detailed Trend) */}
                 <div className="bg-gray-800 p-6 rounded-2xl border border-gray-700 shadow-xl lg:col-span-2">
