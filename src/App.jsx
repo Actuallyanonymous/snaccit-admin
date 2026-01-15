@@ -286,136 +286,152 @@ const PointsManagerView = () => {
 
 
 // --- Dashboard View (Enhanced with Trends) ---
+// --- Dashboard View (Consolidated WoW & Engagement) ---
 const DashboardView = () => {
-    const [stats, setStats] = useState({ restaurants: 0, users: 0, orders: 0 });
+    const [stats, setStats] = useState({ restaurants: 0, users: 0, orders: 0, totalEngagement: "0m" });
     const [chartData, setChartData] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
-    const [timeRange, setTimeRange] = useState(7); // Default 7 days
-    const [wowData, setWowData] = useState([]);
+    const [timeRange, setTimeRange] = useState(7); 
+    const [wowData, setWowData] = useState([
+        { name: 'Revenue', current: 0, previous: 0, growth: 0 },
+        { name: 'Users', current: 0, previous: 0, growth: 0 }
+    ]);
 
     useEffect(() => {
-    const unsubResto = onSnapshot(collection(db, "restaurants"), s => setStats(p => ({ ...p, restaurants: s.size })));
-    
-    const fetchData = async () => {
-    setIsLoading(true);
-    try {
-        const now = new Date();
-        const startOfRange = new Date();
-        startOfRange.setDate(now.getDate() - timeRange);
-        startOfRange.setHours(0, 0, 0, 0); // Normalize to start of day
+        const unsubResto = onSnapshot(collection(db, "restaurants"), s => setStats(p => ({ ...p, restaurants: s.size })));
+        
+        const fetchData = async () => {
+            setIsLoading(true);
+            try {
+                const now = new Date();
+                const startOfCurrent = new Date();
+                startOfCurrent.setDate(now.getDate() - timeRange);
+                startOfCurrent.setHours(0,0,0,0);
 
-        const userQ = query(collection(db, "users"), where("createdAt", ">=", startOfRange));
-        const orderQ = query(collection(db, "orders"), where("createdAt", ">=", startOfRange));
-        const activityQ = query(collection(db, "activity_logs"), where("createdAt", ">=", startOfRange));
+                const startOfPrevious = new Date();
+                startOfPrevious.setDate(now.getDate() - (timeRange * 2));
+                startOfPrevious.setHours(0,0,0,0);
 
-        const [userSnap, orderSnap, activitySnap] = await Promise.all([
-            getDocs(userQ), 
-            getDocs(orderQ), 
-            getDocs(activityQ)
-        ]);
+                // 1. Fetch data for the full 14-day window (to calculate WoW)
+                const userQ = query(collection(db, "users"), where("createdAt", ">=", startOfPrevious));
+                const orderQ = query(collection(db, "orders"), where("createdAt", ">=", startOfPrevious));
+                const activityQ = query(collection(db, "activity_logs"), where("createdAt", ">=", startOfPrevious));
 
-        const dailyData = {};
+                const [userSnap, orderSnap, activitySnap] = await Promise.all([
+                    getDocs(userQ), getDocs(orderQ), getDocs(activityQ)
+                ]);
 
-        // Initialize every single day in the range with 0 to prevent empty/broken lines
-        for (let i = 0; i <= timeRange; i++) {
-            const d = new Date();
-            d.setDate(now.getDate() - i);
-            const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-            dailyData[dateStr] = { 
-                date: dateStr, 
-                signups: 0, 
-                successfulOrders: 0, 
-                failedOrders: 0, 
-                totalMinutes: 0 
-            };
-        }
+                // 2. Initialize WoW & Daily Buckets
+                let currentUsers = 0, prevUsers = 0;
+                let currentRev = 0, prevRev = 0;
+                const dailyData = {};
 
-        // Map Activity Logs to TOTAL minutes
-        activitySnap.forEach(doc => {
-            const data = doc.data();
-            if (data.createdAt) {
-                const date = data.createdAt.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                if (dailyData[date]) {
-                    // Ensure duration is treated as a number
-                    dailyData[date].totalMinutes += Number(data.duration || 0);
+                // Initialize current period days for the line charts
+                for (let i = 0; i < timeRange; i++) {
+                    const d = new Date();
+                    d.setDate(now.getDate() - i);
+                    const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                    dailyData[dateStr] = { date: dateStr, signups: 0, successfulOrders: 0, failedOrders: 0, totalMinutes: 0 };
                 }
-            }
-        });
 
-        // Map Signups and Orders (Keeping your existing logic)
-        userSnap.forEach(doc => {
-            const data = doc.data();
-            if (data.createdAt) {
-                const date = data.createdAt.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                if (dailyData[date]) dailyData[date].signups++;
-            }
-        });
+                const isCurrent = (timestamp) => timestamp.toDate() >= startOfCurrent;
 
-        orderSnap.forEach(doc => {
-            const data = doc.data();
-            if (data.createdAt) {
-                const date = data.createdAt.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                if (dailyData[date]) {
+                // 3. Process WoW Users
+                userSnap.forEach(doc => {
+                    const data = doc.data();
+                    if (!data.createdAt) return;
+                    if (isCurrent(data.createdAt)) {
+                        currentUsers++;
+                        const dateStr = data.createdAt.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                        if (dailyData[dateStr]) dailyData[dateStr].signups++;
+                    } else {
+                        prevUsers++;
+                    }
+                });
+
+                // 4. Process WoW Revenue & Orders
+                orderSnap.forEach(doc => {
+                    const data = doc.data();
+                    if (!data.createdAt) return;
                     const successStatuses = ['pending', 'accepted', 'preparing', 'ready', 'completed'];
-                    if (successStatuses.includes(data.status)) dailyData[date].successfulOrders++;
-                    else if (data.status === 'payment_failed') dailyData[date].failedOrders++;
-                }
+                    const isSuccess = successStatuses.includes(data.status);
+                    const val = data.total || 0;
+
+                    if (isCurrent(data.createdAt)) {
+                        if (isSuccess) currentRev += val;
+                        const dateStr = data.createdAt.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                        if (dailyData[dateStr]) {
+                            if (isSuccess) dailyData[dateStr].successfulOrders++;
+                            else if (data.status === 'payment_failed') dailyData[dateStr].failedOrders++;
+                        }
+                    } else {
+                        if (isSuccess) prevRev += val;
+                    }
+                });
+
+                // 5. Process Engagement (Total Minutes)
+                let totalMins = 0;
+                activitySnap.forEach(doc => {
+                    const data = doc.data();
+                    if (!data.createdAt) return;
+                    if (isCurrent(data.createdAt)) {
+                        const duration = Number(data.duration || 0);
+                        totalMins += duration;
+                        const dateStr = data.createdAt.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                        if (dailyData[dateStr]) dailyData[dateStr].totalMinutes += duration;
+                    }
+                });
+
+                // 6. Finalize WoW Growth Calcs
+                const calcGrowth = (curr, prev) => prev === 0 ? 100 : Math.round(((curr - prev) / prev) * 100);
+                setWowData([
+                    { name: 'Revenue', current: currentRev, previous: prevRev, growth: calcGrowth(currentRev, prevRev) },
+                    { name: 'Users', current: currentUsers, previous: prevUsers, growth: calcGrowth(currentUsers, prevUsers) }
+                ]);
+
+                setChartData(Object.values(dailyData).reverse());
+                setStats(prev => ({ 
+                    ...prev, 
+                    users: currentUsers, 
+                    orders: orderSnap.docs.filter(d => isCurrent(d.data().createdAt)).length,
+                    totalEngagement: `${totalMins}m` 
+                }));
+
+            } catch (error) {
+                console.error("Dashboard Data Fetch Error:", error);
+            } finally {
+                setIsLoading(false);
             }
-        });
+        };
 
-        const finalData = Object.values(dailyData).reverse();
-        const totalPeriodMins = finalData.reduce((acc, curr) => acc + curr.totalMinutes, 0);
+        fetchData();
+        return () => unsubResto();
+    }, [timeRange]);
 
-        setChartData(finalData);
-        setStats(prev => ({ 
-            ...prev, 
-            users: userSnap.size, 
-            orders: orderSnap.size,
-            totalEngagement: `${totalPeriodMins}m` 
-        }));
-
-    } catch (error) {
-        console.error("Dashboard Data Fetch Error:", error);
-    } finally {
-        setIsLoading(false);
-    }
-};
-
-    fetchData();
-    return () => unsubResto();
-}, [timeRange]);
-
-    if (isLoading) {
-        return <div className="flex justify-center items-center h-64"><Loader2 className="animate-spin text-green-400" size={32} /></div>;
-    }
+    if (isLoading) return <div className="flex justify-center items-center h-64"><Loader2 className="animate-spin text-green-400" size={32} /></div>;
 
     return (
         <div className="space-y-8">
             <div className="flex justify-between items-center">
                 <div>
                     <h1 className="text-3xl font-bold text-gray-100">Executive Overview</h1>
-                    <p className="text-gray-400 mt-1">Tracking growth and engagement trends.</p>
+                    <p className="text-gray-400 mt-1">Growth and Engagement (Total Time Fixed)</p>
                 </div>
                 <div className="flex bg-gray-800 p-1 rounded-lg border border-gray-700">
                     {[7, 30].map(days => (
-                        <button 
-                            key={days}
-                            onClick={() => setTimeRange(days)}
-                            className={`px-4 py-1.5 rounded-md text-sm font-bold transition-all ${timeRange === days ? 'bg-green-600 text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}
-                        >
+                        <button key={days} onClick={() => setTimeRange(days)} className={`px-4 py-1.5 rounded-md text-sm font-bold transition-all ${timeRange === days ? 'bg-green-600 text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}>
                             Last {days} Days
                         </button>
                     ))}
                 </div>
             </div>
 
-            {/* Top Stat Cards */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
-    <StatCard title="Total Restaurants" value={stats.restaurants} icon={<Store className="text-blue-400"/>} trend="+2" />
-    <StatCard title="New Signups" value={stats.users} icon={<Users className="text-green-400"/>} trend="Last 7D" />
-    <StatCard title="Total Orders" value={stats.orders} icon={<ShoppingBag className="text-orange-400"/>} trend="Live" />
-    <StatCard title="Avg. Session" value={stats.avgSession || "0m"} icon={<Clock className="text-purple-400"/>} trend="Active" />
-</div>
+                <StatCard title="Total Restaurants" value={stats.restaurants} icon={<Store className="text-blue-400"/>} trend="Active" />
+                <StatCard title="New Signups" value={stats.users} icon={<Users className="text-green-400"/>} trend={`Last ${timeRange}D`} />
+                <StatCard title="Total Orders" value={stats.orders} icon={<ShoppingBag className="text-orange-400"/>} trend="Successful" />
+                <StatCard title="Total Time Spent" value={stats.totalEngagement} icon={<Clock className="text-purple-400"/>} trend="Website" />
+            </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                 {/* signup Trend Chart */}
@@ -442,163 +458,123 @@ const DashboardView = () => {
                     </div>
                 </div>
 
-                {/* --- Successful Order Volume Chart --- */}
-<div className="bg-gray-800 p-6 rounded-2xl border border-gray-700 shadow-xl">
-    <h3 className="text-lg font-bold text-gray-200 mb-6 flex items-center gap-2">
-        <CheckSquare size={20} className="text-green-400"/> Successful Orders
-    </h3>
-    <div className="h-64">
-        <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
-                <XAxis dataKey="date" stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} />
-                <YAxis stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} />
-                <Tooltip cursor={{fill: '#374151'}} contentStyle={{ backgroundColor: '#1f2937', border: 'none', borderRadius: '8px', color: '#fff' }} />
-                <Bar dataKey="successfulOrders" fill="#10b981" radius={[4, 4, 0, 0]} />
-            </BarChart>
-        </ResponsiveContainer>
-    </div>
-</div>
-
-{/* --- Failed Payment Volume Chart --- */}
-<div className="bg-gray-800 p-6 rounded-2xl border border-gray-700 shadow-xl">
-    <h3 className="text-lg font-bold text-gray-200 mb-6 flex items-center gap-2">
-        <XSquare size={20} className="text-red-400"/> Failed Payments
-    </h3>
-    <div className="h-64">
-        <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
-                <XAxis dataKey="date" stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} />
-                <YAxis stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} />
-                <Tooltip cursor={{fill: '#374151'}} contentStyle={{ backgroundColor: '#1f2937', border: 'none', borderRadius: '8px', color: '#fff' }} />
-                <Bar dataKey="failedOrders" fill="#ef4444" radius={[4, 4, 0, 0]} />
-            </BarChart>
-        </ResponsiveContainer>
-    </div>
-</div>
-
-{/* --- NEW SECTION: WoW GROWTH ANALYTICS --- */}
-<div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-    
-    {/* Revenue Growth Graph */}
-    <div className="bg-gray-800 p-6 rounded-2xl border border-gray-700 shadow-xl">
-        <div className="flex justify-between items-start mb-6">
-            <div>
-                <h3 className="text-lg font-bold text-gray-200 flex items-center gap-2">
-                    <DollarSign size={20} className="text-blue-400"/> Revenue WoW Growth
-                </h3>
-                <p className="text-xs text-gray-500">Comparing current vs previous {timeRange} days</p>
+                {/* Successful Order Volume Chart */}
+                <div className="bg-gray-800 p-6 rounded-2xl border border-gray-700 shadow-xl">
+                    <h3 className="text-lg font-bold text-gray-200 mb-6 flex items-center gap-2">
+                        <CheckSquare size={20} className="text-green-400"/> Successful Orders
+                    </h3>
+                    <div className="h-64">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={chartData}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
+                                <XAxis dataKey="date" stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} />
+                                <YAxis stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} />
+                                <Tooltip cursor={{fill: '#374151'}} contentStyle={{ backgroundColor: '#1f2937', border: 'none', borderRadius: '8px', color: '#fff' }} />
+                                <Bar dataKey="successfulOrders" fill="#10b981" radius={[4, 4, 0, 0]} />
+                            </BarChart>
+                        </ResponsiveContainer>
+                    </div>
+                </div>
             </div>
-            <span className={`px-3 py-1 rounded-full text-xs font-black ${wowData[0]?.growth >= 0 ? 'bg-green-900/50 text-green-400' : 'bg-red-900/50 text-red-400'}`}>
-                {wowData[0]?.growth >= 0 ? '+' : ''}{wowData[0]?.growth}%
-            </span>
-        </div>
-        <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={[wowData[0]]} layout="vertical" margin={{ left: 20, right: 20 }}>
-                    <XAxis type="number" hide />
-                    <YAxis type="category" dataKey="name" hide />
-                    <Tooltip cursor={{fill: 'transparent'}} content={({ active, payload }) => {
-                        if (active && payload && payload.length) {
-                            return (
-                                <div className="bg-gray-900 p-4 border border-gray-700 rounded-lg shadow-xl">
-                                    <p className="text-gray-400 text-xs uppercase font-bold mb-2">Revenue Comparison</p>
-                                    <p className="text-white text-sm">Current: <span className="font-bold text-blue-400">₹{payload[0].value}</span></p>
-                                    <p className="text-white text-sm">Previous: <span className="font-bold text-gray-400">₹{payload[1].value}</span></p>
-                                </div>
-                            );
-                        }
-                        return null;
-                    }} />
-                    <Bar dataKey="current" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={40} name="Current Period" />
-                    <Bar dataKey="previous" fill="#475569" radius={[0, 4, 4, 0]} barSize={40} name="Previous Period" />
-                </BarChart>
-            </ResponsiveContainer>
-        </div>
-        <div className="flex justify-center gap-6 mt-2">
-            <div className="flex items-center gap-2 text-xs font-bold text-gray-400"><span className="w-3 h-3 bg-blue-500 rounded-full"></span> Current Period</div>
-            <div className="flex items-center gap-2 text-xs font-bold text-gray-400"><span className="w-3 h-3 bg-gray-600 rounded-full"></span> Previous Period</div>
-        </div>
-    </div>
 
-    {/* User Growth Graph */}
-    <div className="bg-gray-800 p-6 rounded-2xl border border-gray-700 shadow-xl">
-        <div className="flex justify-between items-start mb-6">
-            <div>
-                <h3 className="text-lg font-bold text-gray-200 flex items-center gap-2">
-                    <Users size={20} className="text-green-400"/> User Base Growth
-                </h3>
-                <p className="text-xs text-gray-500">Comparing signups WoW</p>
+            {/* --- WoW GROWTH ANALYTICS --- */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                {/* Revenue WoW */}
+                <div className="bg-gray-800 p-6 rounded-2xl border border-gray-700 shadow-xl">
+                    <div className="flex justify-between items-start mb-6">
+                        <div>
+                            <h3 className="text-lg font-bold text-gray-200 flex items-center gap-2">
+                                <DollarSign size={20} className="text-blue-400"/> Revenue WoW Growth
+                            </h3>
+                            <p className="text-xs text-gray-500">Current vs Previous {timeRange} Days</p>
+                        </div>
+                        <span className={`px-3 py-1 rounded-full text-xs font-black ${wowData[0]?.growth >= 0 ? 'bg-green-900/50 text-green-400' : 'bg-red-900/50 text-red-400'}`}>
+                            {wowData[0]?.growth >= 0 ? '+' : ''}{wowData[0]?.growth}%
+                        </span>
+                    </div>
+                    <div className="h-48">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={[wowData[0]]} layout="vertical">
+                                <XAxis type="number" hide />
+                                <YAxis type="category" dataKey="name" hide />
+                                <Tooltip cursor={{fill: 'transparent'}} content={({ active, payload }) => {
+                                    if (active && payload && payload.length) {
+                                        return (
+                                            <div className="bg-gray-900 p-4 border border-gray-700 rounded-lg shadow-xl">
+                                                <p className="text-white text-sm">Current: <span className="font-bold text-blue-400">₹{payload[0].value}</span></p>
+                                                <p className="text-white text-sm">Prev: <span className="font-bold text-gray-400">₹{payload[1].value}</span></p>
+                                            </div>
+                                        );
+                                    }
+                                    return null;
+                                }} />
+                                <Bar dataKey="current" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={32} />
+                                <Bar dataKey="previous" fill="#475569" radius={[0, 4, 4, 0]} barSize={32} />
+                            </BarChart>
+                        </ResponsiveContainer>
+                    </div>
+                </div>
+
+                {/* Users WoW */}
+                <div className="bg-gray-800 p-6 rounded-2xl border border-gray-700 shadow-xl">
+                    <div className="flex justify-between items-start mb-6">
+                        <div>
+                            <h3 className="text-lg font-bold text-gray-200 flex items-center gap-2">
+                                <Users size={20} className="text-green-400"/> User Base Growth
+                            </h3>
+                            <p className="text-xs text-gray-500">Signups Comparison</p>
+                        </div>
+                        <span className={`px-3 py-1 rounded-full text-xs font-black ${wowData[1]?.growth >= 0 ? 'bg-green-900/50 text-green-400' : 'bg-red-900/50 text-red-400'}`}>
+                            {wowData[1]?.growth >= 0 ? '+' : ''}{wowData[1]?.growth}%
+                        </span>
+                    </div>
+                    <div className="h-48">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={[wowData[1]]} layout="vertical">
+                                <XAxis type="number" hide />
+                                <YAxis type="category" dataKey="name" hide />
+                                <Tooltip cursor={{fill: 'transparent'}} content={({ active, payload }) => {
+                                    if (active && payload && payload.length) {
+                                        return (
+                                            <div className="bg-gray-900 p-4 border border-gray-700 rounded-lg shadow-xl">
+                                                <p className="text-white text-sm">Current: <span className="font-bold text-green-400">{payload[0].value} Users</span></p>
+                                                <p className="text-white text-sm">Prev: <span className="font-bold text-gray-400">{payload[1].value} Users</span></p>
+                                            </div>
+                                        );
+                                    }
+                                    return null;
+                                }} />
+                                <Bar dataKey="current" fill="#10b981" radius={[0, 4, 4, 0]} barSize={32} />
+                                <Bar dataKey="previous" fill="#475569" radius={[0, 4, 4, 0]} barSize={32} />
+                            </BarChart>
+                        </ResponsiveContainer>
+                    </div>
+                </div>
             </div>
-            <span className={`px-3 py-1 rounded-full text-xs font-black ${wowData[1]?.growth >= 0 ? 'bg-green-900/50 text-green-400' : 'bg-red-900/50 text-red-400'}`}>
-                {wowData[1]?.growth >= 0 ? '+' : ''}{wowData[1]?.growth}%
-            </span>
-        </div>
-        <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={[wowData[1]]} layout="vertical" margin={{ left: 20, right: 20 }}>
-                    <XAxis type="number" hide />
-                    <YAxis type="category" dataKey="name" hide />
-                    <Tooltip cursor={{fill: 'transparent'}} content={({ active, payload }) => {
-                         if (active && payload && payload.length) {
-                            return (
-                                <div className="bg-gray-900 p-4 border border-gray-700 rounded-lg shadow-xl">
-                                    <p className="text-gray-400 text-xs uppercase font-bold mb-2">User Comparison</p>
-                                    <p className="text-white text-sm">Current: <span className="font-bold text-green-400">{payload[0].value} New</span></p>
-                                    <p className="text-white text-sm">Previous: <span className="font-bold text-gray-400">{payload[1].value} New</span></p>
-                                </div>
-                            );
-                        }
-                        return null;
-                    }} />
-                    <Bar dataKey="current" fill="#10b981" radius={[0, 4, 4, 0]} barSize={40} />
-                    <Bar dataKey="previous" fill="#475569" radius={[0, 4, 4, 0]} barSize={40} />
-                </BarChart>
-            </ResponsiveContainer>
-        </div>
-        <div className="flex justify-center gap-6 mt-2">
-            <div className="flex items-center gap-2 text-xs font-bold text-gray-400"><span className="w-3 h-3 bg-green-500 rounded-full"></span> Current Period</div>
-            <div className="flex items-center gap-2 text-xs font-bold text-gray-400"><span className="w-3 h-3 bg-gray-600 rounded-full"></span> Previous Period</div>
-        </div>
-    </div>
-</div>
 
-                {/* Engagement / Time Spent (Total Minutes) */}
-<div className="bg-gray-800 p-6 rounded-2xl border border-gray-700 shadow-xl lg:col-span-2">
-    <h3 className="text-lg font-bold text-gray-200 mb-6 flex items-center gap-2">
-        <Activity size={20} className="text-purple-400"/> Total User Engagement (Total Minutes on Site)
-    </h3>
-    <div className="h-64">
-        <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={chartData}>
-                <defs>
-                    <linearGradient id="colorMinutes" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#a855f7" stopOpacity={0.3}/>
-                        <stop offset="95%" stopColor="#a855f7" stopOpacity={0}/>
-                    </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
-                <XAxis dataKey="date" stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} />
-                <YAxis stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} unit="m" />
-                <Tooltip 
-                    contentStyle={{ backgroundColor: '#1f2937', border: 'none', borderRadius: '8px', color: '#fff' }}
-                    itemStyle={{ color: '#a855f7' }}
-                    formatter={(value) => [`${value} Minutes`, 'Total Time']}
-                />
-                <Area 
-                    type="monotone" 
-                    dataKey="totalMinutes" 
-                    stroke="#a855f7" 
-                    strokeWidth={3} 
-                    fillOpacity={1} 
-                    fill="url(#colorMinutes)" 
-                />
-            </AreaChart>
-        </ResponsiveContainer>
-    </div>
-    <p className="mt-4 text-xs text-gray-500 italic">* Total engagement is the sum of all session durations recorded from the customer app.</p>
-</div>
+            {/* Total Engagement Chart */}
+            <div className="bg-gray-800 p-6 rounded-2xl border border-gray-700 shadow-xl lg:col-span-2">
+                <h3 className="text-lg font-bold text-gray-200 mb-6 flex items-center gap-2">
+                    <Activity size={20} className="text-purple-400"/> Total User Engagement (Total Minutes on Site)
+                </h3>
+                <div className="h-64">
+                    <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart data={chartData}>
+                            <defs>
+                                <linearGradient id="colorMinutes" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="5%" stopColor="#a855f7" stopOpacity={0.3}/>
+                                    <stop offset="95%" stopColor="#a855f7" stopOpacity={0}/>
+                                </linearGradient>
+                            </defs>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
+                            <XAxis dataKey="date" stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} />
+                            <YAxis stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} unit="m" />
+                            <Tooltip contentStyle={{ backgroundColor: '#1f2937', border: 'none', borderRadius: '8px', color: '#fff' }} />
+                            <Area type="monotone" dataKey="totalMinutes" stroke="#a855f7" strokeWidth={3} fillOpacity={1} fill="url(#colorMinutes)" />
+                        </AreaChart>
+                    </ResponsiveContainer>
+                </div>
+                <p className="mt-4 text-xs text-gray-500 italic">* Total engagement is the sum of all session durations recorded.</p>
             </div>
         </div>
     );
