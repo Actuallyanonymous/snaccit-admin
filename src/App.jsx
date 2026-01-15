@@ -301,8 +301,8 @@ const DashboardView = () => {
     setIsLoading(true);
     try {
         const now = new Date();
-        const startOfRange = new Date();
-        startOfRange.setDate(now.getDate() - timeRange);
+        // 1. Normalize startOfRange to the very beginning of the day (Midnight)
+        const startOfRange = new Date(now.getFullYear(), now.getMonth(), now.getDate() - timeRange);
 
         const userQ = query(collection(db, "users"), where("createdAt", ">=", startOfRange));
         const orderQ = query(collection(db, "orders"), where("createdAt", ">=", startOfRange));
@@ -316,41 +316,46 @@ const DashboardView = () => {
 
         const dailyData = {};
 
+        // 2. Standardized Date Formatter to ensure keys always match
+        const formatDate = (date) => {
+            return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        };
+
+        // 3. Initialize the date map
         for (let i = 0; i <= timeRange; i++) {
             const d = new Date();
             d.setDate(now.getDate() - i);
-            const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            const dateStr = formatDate(d); // Use helper
             dailyData[dateStr] = { 
                 date: dateStr, 
                 signups: 0, 
-                successfulOrders: 0, // Track successful
-                failedOrders: 0,     // Track failed
+                successfulOrders: 0, 
+                failedOrders: 0, 
                 totalMinutes: 0, 
                 sessionCount: 0 
             };
         }
 
-        // 4. Map Signups (Adding safety check for createdAt)
+        // 4. Map Signups
         userSnap.forEach(doc => {
             const data = doc.data();
-            if (data.createdAt) {
-                const date = data.createdAt.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                if (dailyData[date]) dailyData[date].signups++;
+            if (data.createdAt?.toDate) {
+                const dateKey = formatDate(data.createdAt.toDate());
+                if (dailyData[dateKey]) dailyData[dateKey].signups++;
             }
         });
 
-        // 5. Map Orders
+        // 5. Map Orders (Logic for Success vs Failure)
         orderSnap.forEach(doc => {
             const data = doc.data();
-            if (data.createdAt) {
-                const date = data.createdAt.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                if (dailyData[date]) {
-                    // Logic: Orders marked as 'declined' or 'failed' are counted as failed.
-                    // Everything else (pending, accepted, completed) is a successful attempt/intent.
+            if (data.createdAt?.toDate) {
+                const dateKey = formatDate(data.createdAt.toDate());
+                if (dailyData[dateKey]) {
+                    // Check status - make sure strings match your DB exactly
                     if (data.status === 'declined' || data.status === 'failed') {
-                        dailyData[date].failedOrders++;
+                        dailyData[dateKey].failedOrders++;
                     } else {
-                        dailyData[date].successfulOrders++;
+                        dailyData[dateKey].successfulOrders++;
                     }
                 }
             }
@@ -359,19 +364,20 @@ const DashboardView = () => {
         // 6. Map Activity Logs
         activitySnap.forEach(doc => {
             const data = doc.data();
-            if (data.createdAt) {
-                const date = data.createdAt.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                if (dailyData[date]) {
-                    dailyData[date].totalMinutes += (data.duration || 0);
-                    dailyData[date].sessionCount += 1;
+            if (data.createdAt?.toDate) {
+                const dateKey = formatDate(data.createdAt.toDate());
+                if (dailyData[dateKey]) {
+                    dailyData[dateKey].totalMinutes += (data.duration || 0);
+                    dailyData[dateKey].sessionCount += 1;
                 }
             }
         });
 
-        const finalData = Object.values(dailyData).map(day => ({
+        // Convert object to array and reverse to chronological order
+        const finalData = Object.values(dailyData).reverse().map(day => ({
             ...day,
             avgTime: day.sessionCount > 0 ? Math.round(day.totalMinutes / day.sessionCount) : 0
-        })).reverse();
+        }));
 
         const totalPeriodMins = finalData.reduce((acc, curr) => acc + curr.totalMinutes, 0);
         const totalPeriodSessions = finalData.reduce((acc, curr) => acc + curr.sessionCount, 0);
@@ -379,7 +385,6 @@ const DashboardView = () => {
 
         setChartData(finalData);
         
-        // Update stats using functional update to ensure you don't lose restaurant count
         setStats(prev => ({ 
             ...prev,
             users: userSnap.size, 
@@ -389,9 +394,8 @@ const DashboardView = () => {
 
     } catch (error) {
         console.error("Dashboard Data Fetch Error:", error);
-        // You can add an alert or notification here
     } finally {
-        setIsLoading(false); // This ensures the spinner stops even if there's an error
+        setIsLoading(false);
     }
 };
 
