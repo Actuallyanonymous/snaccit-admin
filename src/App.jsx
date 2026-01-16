@@ -86,68 +86,6 @@ const AdminLoginPage = () => {
     );
 };
 
-// --- New View for Snaccit-Admin: WalletFinalizerView ---
-const WalletFinalizerView = () => {
-    const [approvals, setApprovals] = useState([]);
-
-    useEffect(() => {
-        const q = query(collection(db, "wallet_requests"), where("status", "==", "confirmed"));
-        return onSnapshot(q, s => setApprovals(s.docs.map(d => ({id: d.id, ...d.data()}))));
-    }, []);
-
-    const issuePoints = async (req) => {
-        const userRef = doc(db, "users", req.userId);
-        
-        // 1. Get current balance
-        const userSnap = await getDoc(userRef);
-        const currentPoints = userSnap.data().points || 0;
-        
-        // 2. Add points (1 Rupee = 10 Points assumed)
-        const pointsToAdd = req.amount * 10; 
-
-        await updateDoc(userRef, {
-            points: currentPoints + pointsToAdd,
-            pointsNotification: {
-                amount: pointsToAdd,
-                timestamp: serverTimestamp(),
-                read: false
-            }
-        });
-
-        // 3. Close the request
-        await updateDoc(doc(db, "wallet_requests", req.id), {
-            status: 'completed',
-            issuedAt: serverTimestamp(),
-            pointsIssued: pointsToAdd
-        });
-        
-        alert("Points successfully issued to " + req.userName);
-    };
-
-    return (
-        <div className="p-6">
-            <h1 className="text-2xl font-bold text-white mb-6">Final Point Issuance</h1>
-            <div className="grid gap-4">
-                {approvals.map(req => (
-                    <div key={req.id} className="bg-gray-800 border border-green-500/50 p-6 rounded-2xl flex justify-between items-center">
-                        <div>
-                            <span className="text-xs bg-green-900 text-green-300 px-2 py-1 rounded">RESTO CONFIRMED</span>
-                            <h3 className="text-xl font-bold text-white mt-2">{req.userName}</h3>
-                            <p className="text-gray-400">Paid ₹{req.amount} at {req.restaurantName}</p>
-                        </div>
-                        <button 
-                            onClick={() => issuePoints(req)}
-                            className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-xl shadow-lg"
-                        >
-                            Issue {req.amount * 10} Points
-                        </button>
-                    </div>
-                ))}
-            </div>
-        </div>
-    );
-};
-
 // --- Points Manager View (Updated for Mobile Search & Activity Logs) ---
 const PointsManagerView = () => {
     const [searchMobile, setSearchMobile] = useState('');
