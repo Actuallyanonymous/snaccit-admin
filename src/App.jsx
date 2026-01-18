@@ -1306,6 +1306,94 @@ const RestaurantView = () => {
     );
 };
 
+const AdminCashProcessor = () => {
+    const [requests, setRequests] = useState([]);
+    const [isProcessing, setIsProcessing] = useState(false);
+
+    useEffect(() => {
+        const q = query(collection(db, "cash_requests"), where("status", "==", "pending_admin"));
+        return onSnapshot(q, (snapshot) => {
+            setRequests(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        });
+    }, []);
+
+    const processToPoints = async (req) => {
+        setIsProcessing(true);
+        try {
+            const userRef = doc(db, "users", req.userId);
+            const userSnap = await getDoc(userRef);
+            const currentPoints = userSnap.data()?.points || 0;
+
+            // 1. Add points to user
+            await updateDoc(userRef, {
+                points: currentPoints + req.amountConfirmed,
+                pointsNotification: {
+                    amount: req.amountConfirmed,
+                    timestamp: serverTimestamp(),
+                    read: false
+                }
+            });
+
+            // 2. Mark request as completed
+            await updateDoc(doc(db, "cash_requests", req.id), {
+                status: 'completed',
+                processedBy: auth.currentUser.email
+            });
+
+            // 3. Log to points_history
+            await addDoc(collection(db, "points_history"), {
+                adminEmail: auth.currentUser.email,
+                targetUserId: req.userId,
+                pointsChanged: req.amountConfirmed,
+                type: 'cash_deposit',
+                timestamp: serverTimestamp()
+            });
+
+            alert("Points added successfully!");
+        } catch (error) {
+            console.error(error);
+        } finally {
+            setIsProcessing(false);
+        }
+    };
+
+    return (
+        <div className="space-y-6">
+            <h1 className="text-3xl font-bold text-white">Finalize Cash Deposits</h1>
+            <div className="bg-gray-800 rounded-2xl border border-gray-700 overflow-hidden">
+                <table className="w-full text-left">
+                    <thead className="bg-gray-900 text-gray-400 text-xs uppercase font-black">
+                        <tr>
+                            <th className="p-4">Customer</th>
+                            <th className="p-4">Restaurant</th>
+                            <th className="p-4">Amount</th>
+                            <th className="p-4">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-700">
+                        {requests.map(req => (
+                            <tr key={req.id}>
+                                <td className="p-4 text-white font-bold">{req.userName}</td>
+                                <td className="p-4 text-gray-400">{req.restaurantName}</td>
+                                <td className="p-4 text-green-400 font-black">₹{req.amountConfirmed}</td>
+                                <td className="p-4">
+                                    <button 
+                                        onClick={() => processToPoints(req)}
+                                        disabled={isProcessing}
+                                        className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                                    >
+                                        Add {req.amountConfirmed} Points
+                                    </button>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
+};
+
 // --- Customers View ---
 const CustomersView = () => {
     const [customers, setCustomers] = useState([]);
