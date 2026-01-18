@@ -1227,8 +1227,7 @@ const RestaurantView = () => {
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
-        // We fetch from the "restaurants" collection as these are the entities 
-        // that actually appear on the main website.
+        // Fetch from "restaurants" collection
         const q = query(collection(db, "restaurants"), orderBy("name"));
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const restoData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -1241,77 +1240,67 @@ const RestaurantView = () => {
     const handleToggleVisibility = async (restoId, currentStatus) => {
         try {
             const restoRef = doc(db, "restaurants", restoId);
-            // If isVisible doesn't exist in DB yet, it will default to false and toggle to true
+            // If it's undefined or true, turn it off (false). If it's false, turn it on (true).
+            const nextStatus = currentStatus === false ? true : false;
+            
             await updateDoc(restoRef, { 
-                isVisible: !currentStatus 
+                isVisible: nextStatus 
             });
         } catch (err) {
             console.error("Error updating visibility:", err);
-            alert("Failed to update visibility.");
         }
     };
 
     return (
         <div className="space-y-6">
-            <div>
-                <h1 className="text-3xl font-bold text-gray-100">App Visibility</h1>
-                <p className="text-gray-400 mt-2">Control which restaurants are visible to customers on the Snaccit app.</p>
-            </div>
-
+            <h1 className="text-3xl font-bold text-gray-100">Restaurant Visibility</h1>
+            
             <div className="bg-gray-800 rounded-2xl border border-gray-700 shadow-xl overflow-hidden">
-                <div className="overflow-x-auto">
-                    <table className="w-full text-left">
-                        <thead className="bg-gray-900/50 text-gray-400 uppercase text-xs font-bold">
-                            <tr>
-                                <th className="p-5">Restaurant Name</th>
-                                <th className="p-5">Cuisine</th>
-                                <th className="p-5 text-center">App Visibility</th>
-                                <th className="p-5 text-right">Status</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-700">
-                            {isLoading ? (
-                                <tr><td colSpan="4" className="text-center p-10"><Loader2 className="animate-spin mx-auto text-green-400" /></td></tr>
-                            ) : restaurants.length === 0 ? (
-                                <tr><td colSpan="4" className="text-center p-10 text-gray-500">No restaurants found in database.</td></tr>
-                            ) : (
-                                restaurants.map(resto => (
-                                    <tr key={resto.id} className="hover:bg-gray-700/30 transition-colors">
-                                        <td className="p-5 font-bold text-gray-200">{resto.name}</td>
-                                        <td className="p-5 text-gray-400 text-sm">{resto.cuisine}</td>
-                                        <td className="p-5">
-                                            <div className="flex justify-center">
-                                                <button 
-                                                    onClick={() => handleToggleVisibility(resto.id, resto.isVisible)}
-                                                    className="flex items-center gap-2 group"
-                                                >
-                                                    {resto.isVisible ? (
-                                                        <div className="flex items-center gap-2 text-green-400 bg-green-400/10 px-3 py-1.5 rounded-full border border-green-400/20">
-                                                            <ToggleRight size={20} />
-                                                            <span className="text-[10px] font-black uppercase tracking-widest">Live on App</span>
-                                                        </div>
-                                                    ) : (
-                                                        <div className="flex items-center gap-2 text-gray-500 bg-gray-500/10 px-3 py-1.5 rounded-full border border-gray-500/20">
-                                                            <ToggleLeft size={20} />
-                                                            <span className="text-[10px] font-black uppercase tracking-widest">Hidden</span>
-                                                        </div>
-                                                    )}
-                                                </button>
-                                            </div>
-                                        </td>
-                                        <td className="p-5 text-right">
-                                            <span className={`px-2 py-1 text-[10px] font-black uppercase rounded ${
-                                                resto.isOpen !== false ? 'bg-blue-900/40 text-blue-400' : 'bg-red-900/40 text-red-400'
-                                            }`}>
-                                                {resto.isOpen !== false ? 'Open' : 'Closed'}
-                                            </span>
-                                        </td>
-                                    </tr>
-                                ))
-                            )}
-                        </tbody>
-                    </table>
-                </div>
+                <table className="w-full text-left">
+                    <thead className="bg-gray-900/50 text-gray-400 uppercase text-xs font-bold">
+                        <tr>
+                            <th className="p-5">Restaurant Name</th>
+                            <th className="p-5 text-center">Show on Main App?</th>
+                            <th className="p-5 text-right">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-700">
+                        {isLoading ? (
+                            <tr><td colSpan="3" className="text-center p-10"><Loader2 className="animate-spin mx-auto text-green-400" /></td></tr>
+                        ) : (
+                            restaurants.map(resto => (
+                                <tr key={resto.id} className="hover:bg-gray-700/30">
+                                    <td className="p-5 font-bold text-gray-200">{resto.name}</td>
+                                    <td className="p-5">
+                                        <div className="flex justify-center">
+                                            <button 
+                                                onClick={() => handleToggleVisibility(resto.id, resto.isVisible)}
+                                                className="flex items-center gap-2"
+                                            >
+                                                {resto.isVisible !== false ? (
+                                                    <div className="flex items-center gap-2 text-green-400 bg-green-400/10 px-3 py-1.5 rounded-full border border-green-400/20">
+                                                        <ToggleRight size={20} />
+                                                        <span className="text-[10px] font-black uppercase">Visible</span>
+                                                    </div>
+                                                ) : (
+                                                    <div className="flex items-center gap-2 text-gray-500 bg-gray-500/10 px-3 py-1.5 rounded-full border border-gray-500/20">
+                                                        <ToggleLeft size={20} />
+                                                        <span className="text-[10px] font-black uppercase">Hidden</span>
+                                                    </div>
+                                                )}
+                                            </button>
+                                        </div>
+                                    </td>
+                                    <td className="p-5 text-right">
+                                        <span className={`px-2 py-1 text-[10px] font-black uppercase rounded ${resto.isOpen !== false ? 'bg-blue-900/40 text-blue-400' : 'bg-red-900/40 text-red-400'}`}>
+                                            {resto.isOpen !== false ? 'Open' : 'Closed'}
+                                        </span>
+                                    </td>
+                                </tr>
+                            ))
+                        )}
+                    </tbody>
+                </table>
             </div>
         </div>
     );
