@@ -1812,6 +1812,7 @@ const App = () => {
 
     const navItems = [
         { id: 'dashboard', label: 'Dashboard', icon: <BarChart2 size={20}/> },
+        { id: 'cashRequests', label: 'Cash Requests', icon: <DollarSign size={20}/> },
         { id: 'orders', label: 'All Orders', icon: <ShoppingBag size={20}/> },
         { id: 'payouts', label: 'Payouts', icon: <DollarSign size={20}/> },
         { id: 'restaurants', label: 'Restaurants', icon: <Store size={20}/> },
@@ -1833,6 +1834,7 @@ const App = () => {
             case 'messages': return <MessagesView />;
             case 'burn': return <BurnRateView />;
             case 'points': return <PointsManagerView />;
+            case 'cashRequests': return <AdminCashProcessor />;
             default: return <DashboardView />;
         }
     };
