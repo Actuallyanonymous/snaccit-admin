@@ -1333,13 +1333,13 @@ const AdminCashProcessor = () => {
 
         // 1. Add points and set notification so user sees a popup in their app
         await updateDoc(userRef, {
-            points: currentPoints + depositAmount,
-            pointsNotification: {
-                amount: depositAmount,
-                timestamp: serverTimestamp(),
-                read: false
-            }
-        });
+    points: currentPoints + pointsToGrant,
+    pointsNotification: {
+        amount: pointsToGrant, // User sees "You received X points"
+        timestamp: serverTimestamp(),
+        read: false
+    }
+});
 
         // 2. Finalize the request
         await updateDoc(doc(db, "cash_requests", req.id), {
@@ -1352,7 +1352,7 @@ const AdminCashProcessor = () => {
             adminEmail: auth.currentUser.email,
             targetUserId: req.userId,
             targetUserName: req.userName,
-            pointsChanged: depositAmount,
+            pointsChanged: pointsToGrant,
             type: 'cash_deposit',
             timestamp: serverTimestamp()
         });
@@ -1391,7 +1391,7 @@ const AdminCashProcessor = () => {
                                         disabled={isProcessing}
                                         className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50"
                                     >
-                                        Add {req.amountConfirmed} Points
+                                        Add {req.amountConfirmed * 10} Points
                                     </button>
                                 </td>
                             </tr>
