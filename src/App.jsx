@@ -1221,65 +1221,90 @@ const PayoutsView = () => {
     );
 };
 
-// --- Restaurant Management View ---
+// --- Updated Restaurant Management View ---
 const RestaurantView = () => {
     const [restaurants, setRestaurants] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
-        const q = query(collection(db, "users"), where("role", "==", "restaurant"));
+        // We fetch from the "restaurants" collection as these are the entities 
+        // that actually appear on the main website.
+        const q = query(collection(db, "restaurants"), orderBy("name"));
         const unsubscribe = onSnapshot(q, (snapshot) => {
-            const restaurantUsers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            setRestaurants(restaurantUsers);
+            const restoData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setRestaurants(restoData);
             setIsLoading(false);
         });
         return () => unsubscribe();
     }, []);
 
-    const handleApproval = async (userId, newStatus) => {
-        const userDocRef = doc(db, "users", userId);
-        await updateDoc(userDocRef, { approvalStatus: newStatus });
+    const handleToggleVisibility = async (restoId, currentStatus) => {
+        try {
+            const restoRef = doc(db, "restaurants", restoId);
+            // If isVisible doesn't exist in DB yet, it will default to false and toggle to true
+            await updateDoc(restoRef, { 
+                isVisible: !currentStatus 
+            });
+        } catch (err) {
+            console.error("Error updating visibility:", err);
+            alert("Failed to update visibility.");
+        }
     };
 
     return (
-        <div>
-            <h1 className="text-3xl font-bold text-gray-100">Restaurant Management</h1>
-            <p className="text-gray-400 mt-2">Approve and manage restaurant partners.</p>
-            <div className="mt-8 bg-gray-800 p-6 rounded-lg shadow-lg">
+        <div className="space-y-6">
+            <div>
+                <h1 className="text-3xl font-bold text-gray-100">App Visibility</h1>
+                <p className="text-gray-400 mt-2">Control which restaurants are visible to customers on the Snaccit app.</p>
+            </div>
+
+            <div className="bg-gray-800 rounded-2xl border border-gray-700 shadow-xl overflow-hidden">
                 <div className="overflow-x-auto">
                     <table className="w-full text-left">
-                        <thead>
-                            <tr className="border-b border-gray-700">
-                                <th className="p-4">Email</th>
-                                <th className="p-4">FSSAI License</th>
-                                <th className="p-4">Status</th>
-                                <th className="p-4">Actions</th>
+                        <thead className="bg-gray-900/50 text-gray-400 uppercase text-xs font-bold">
+                            <tr>
+                                <th className="p-5">Restaurant Name</th>
+                                <th className="p-5">Cuisine</th>
+                                <th className="p-5 text-center">App Visibility</th>
+                                <th className="p-5 text-right">Status</th>
                             </tr>
                         </thead>
-                        <tbody>
+                        <tbody className="divide-y divide-gray-700">
                             {isLoading ? (
-                                <tr><td colSpan="4" className="text-center p-4">Loading...</td></tr>
+                                <tr><td colSpan="4" className="text-center p-10"><Loader2 className="animate-spin mx-auto text-green-400" /></td></tr>
+                            ) : restaurants.length === 0 ? (
+                                <tr><td colSpan="4" className="text-center p-10 text-gray-500">No restaurants found in database.</td></tr>
                             ) : (
                                 restaurants.map(resto => (
-                                    <tr key={resto.id} className="border-b border-gray-700 hover:bg-gray-700/50">
-                                        <td className="p-4 font-medium">{resto.email}</td>
-                                        <td className="p-4 text-gray-400">{resto.fssaiLicense}</td>
-                                        <td className="p-4">
-                                            <span className={`px-2 py-1 text-xs font-bold rounded-full ${
-                                                resto.approvalStatus === 'approved' ? 'bg-green-900 text-green-300' :
-                                                resto.approvalStatus === 'pending' ? 'bg-yellow-900 text-yellow-300' :
-                                                'bg-red-900 text-red-300'
-                                            }`}>
-                                                {resto.approvalStatus}
-                                            </span>
+                                    <tr key={resto.id} className="hover:bg-gray-700/30 transition-colors">
+                                        <td className="p-5 font-bold text-gray-200">{resto.name}</td>
+                                        <td className="p-5 text-gray-400 text-sm">{resto.cuisine}</td>
+                                        <td className="p-5">
+                                            <div className="flex justify-center">
+                                                <button 
+                                                    onClick={() => handleToggleVisibility(resto.id, resto.isVisible)}
+                                                    className="flex items-center gap-2 group"
+                                                >
+                                                    {resto.isVisible ? (
+                                                        <div className="flex items-center gap-2 text-green-400 bg-green-400/10 px-3 py-1.5 rounded-full border border-green-400/20">
+                                                            <ToggleRight size={20} />
+                                                            <span className="text-[10px] font-black uppercase tracking-widest">Live on App</span>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="flex items-center gap-2 text-gray-500 bg-gray-500/10 px-3 py-1.5 rounded-full border border-gray-500/20">
+                                                            <ToggleLeft size={20} />
+                                                            <span className="text-[10px] font-black uppercase tracking-widest">Hidden</span>
+                                                        </div>
+                                                    )}
+                                                </button>
+                                            </div>
                                         </td>
-                                        <td className="p-4 flex gap-2">
-                                            {resto.approvalStatus === 'pending' && (
-                                                <>
-                                                    <button onClick={() => handleApproval(resto.id, 'approved')} className="text-green-400 hover:text-green-300"><CheckSquare size={20}/></button>
-                                                    <button onClick={() => handleApproval(resto.id, 'declined')} className="text-red-400 hover:text-red-300"><XSquare size={20}/></button>
-                                                </>
-                                            )}
+                                        <td className="p-5 text-right">
+                                            <span className={`px-2 py-1 text-[10px] font-black uppercase rounded ${
+                                                resto.isOpen !== false ? 'bg-blue-900/40 text-blue-400' : 'bg-red-900/40 text-red-400'
+                                            }`}>
+                                                {resto.isOpen !== false ? 'Open' : 'Closed'}
+                                            </span>
                                         </td>
                                     </tr>
                                 ))
