@@ -1329,35 +1329,37 @@ const AdminCashProcessor = () => {
         }
 
         const currentPoints = userSnap.data()?.points || 0;
-        const depositAmount = Number(req.amountConfirmed);
+        const cashAmount = Number(req.amountConfirmed);
+        const pointsToCredit = cashAmount * 10; // <--- Conversion: ₹1 = 10 Points
 
-        // 1. Add points and set notification so user sees a popup in their app
+        // 1. Add multiplied points to user
         await updateDoc(userRef, {
-    points: currentPoints + pointsToGrant,
-    pointsNotification: {
-        amount: pointsToGrant, // User sees "You received X points"
-        timestamp: serverTimestamp(),
-        read: false
-    }
-});
-
-        // 2. Finalize the request
-        await updateDoc(doc(db, "cash_requests", req.id), {
-            status: 'completed',
-            processedBy: auth.currentUser.email
+            points: currentPoints + pointsToCredit,
+            pointsNotification: {
+                amount: pointsToCredit, // User sees "You received 500 points"
+                timestamp: serverTimestamp(),
+                read: false
+            }
         });
 
-        // 3. Log it for your history tab
+        // 2. Mark request as completed
+        await updateDoc(doc(db, "cash_requests", req.id), {
+            status: 'completed',
+            processedBy: auth.currentUser.email,
+            pointsIssued: pointsToCredit // Helpful for record keeping
+        });
+
+        // 3. Log to points_history
         await addDoc(collection(db, "points_history"), {
             adminEmail: auth.currentUser.email,
             targetUserId: req.userId,
             targetUserName: req.userName,
-            pointsChanged: pointsToGrant,
+            pointsChanged: pointsToCredit, // Log the 10x value
             type: 'cash_deposit',
             timestamp: serverTimestamp()
         });
 
-        alert(`Successfully added ${depositAmount} points!`);
+        alert(`Successfully added ${pointsToCredit} points (₹${cashAmount} x 10)!`);
     } catch (error) {
         console.error(error);
         alert("Failed to process points.");
