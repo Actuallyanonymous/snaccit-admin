@@ -1318,44 +1318,53 @@ const AdminCashProcessor = () => {
     }, []);
 
     const processToPoints = async (req) => {
-        setIsProcessing(true);
-        try {
-            const userRef = doc(db, "users", req.userId);
-            const userSnap = await getDoc(userRef);
-            const currentPoints = userSnap.data()?.points || 0;
-
-            // 1. Add points to user
-            await updateDoc(userRef, {
-                points: currentPoints + req.amountConfirmed,
-                pointsNotification: {
-                    amount: req.amountConfirmed,
-                    timestamp: serverTimestamp(),
-                    read: false
-                }
-            });
-
-            // 2. Mark request as completed
-            await updateDoc(doc(db, "cash_requests", req.id), {
-                status: 'completed',
-                processedBy: auth.currentUser.email
-            });
-
-            // 3. Log to points_history
-            await addDoc(collection(db, "points_history"), {
-                adminEmail: auth.currentUser.email,
-                targetUserId: req.userId,
-                pointsChanged: req.amountConfirmed,
-                type: 'cash_deposit',
-                timestamp: serverTimestamp()
-            });
-
-            alert("Points added successfully!");
-        } catch (error) {
-            console.error(error);
-        } finally {
-            setIsProcessing(false);
+    setIsProcessing(true);
+    try {
+        const userRef = doc(db, "users", req.userId);
+        const userSnap = await getDoc(userRef);
+        
+        if (!userSnap.exists()) {
+            alert("User profile not found in database.");
+            return;
         }
-    };
+
+        const currentPoints = userSnap.data()?.points || 0;
+        const depositAmount = Number(req.amountConfirmed);
+
+        // 1. Add points and set notification so user sees a popup in their app
+        await updateDoc(userRef, {
+            points: currentPoints + depositAmount,
+            pointsNotification: {
+                amount: depositAmount,
+                timestamp: serverTimestamp(),
+                read: false
+            }
+        });
+
+        // 2. Finalize the request
+        await updateDoc(doc(db, "cash_requests", req.id), {
+            status: 'completed',
+            processedBy: auth.currentUser.email
+        });
+
+        // 3. Log it for your history tab
+        await addDoc(collection(db, "points_history"), {
+            adminEmail: auth.currentUser.email,
+            targetUserId: req.userId,
+            targetUserName: req.userName,
+            pointsChanged: depositAmount,
+            type: 'cash_deposit',
+            timestamp: serverTimestamp()
+        });
+
+        alert(`Successfully added ${depositAmount} points!`);
+    } catch (error) {
+        console.error(error);
+        alert("Failed to process points.");
+    } finally {
+        setIsProcessing(false);
+    }
+};
 
     return (
         <div className="space-y-6">
