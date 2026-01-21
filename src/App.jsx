@@ -1405,6 +1405,80 @@ const AdminCashProcessor = () => {
     );
 };
 
+const PendingApprovalsView = () => {
+    const [pendingUsers, setPendingUsers] = useState([]);
+    const [isLoading, setIsLoading] = useState(true);
+
+    useEffect(() => {
+        // Query users collection for pending restaurant roles
+        const q = query(
+            collection(db, "users"), 
+            where("role", "==", "restaurant"), 
+            where("approvalStatus", "==", "pending")
+        );
+        
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            setPendingUsers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+            setIsLoading(false);
+        });
+        return () => unsubscribe();
+    }, []);
+
+    const handleApprove = async (userId) => {
+        try {
+            const userRef = doc(db, "users", userId);
+            await updateDoc(userRef, {
+                approvalStatus: 'approved'
+            });
+            alert("Restaurant approved successfully!");
+        } catch (err) {
+            console.error("Approval error:", err);
+            alert("Failed to approve restaurant.");
+        }
+    };
+
+    return (
+        <div className="space-y-6">
+            <h1 className="text-3xl font-bold text-gray-100">Pending Registrations</h1>
+            <div className="bg-gray-800 rounded-2xl border border-gray-700 shadow-xl overflow-hidden">
+                <table className="w-full text-left">
+                    <thead className="bg-gray-900/50 text-gray-400 uppercase text-xs font-bold">
+                        <tr>
+                            <th className="p-5">Email</th>
+                            <th className="p-5">FSSAI License</th>
+                            <th className="p-5 text-center">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-700">
+                        {isLoading ? (
+                            <tr><td colSpan="3" className="text-center p-10"><Loader2 className="animate-spin mx-auto text-green-400" /></td></tr>
+                        ) : pendingUsers.length === 0 ? (
+                            <tr><td colSpan="3" className="text-center p-10 text-gray-500">No pending approvals.</td></tr>
+                        ) : (
+                            pendingUsers.map(user => (
+                                <tr key={user.id} className="hover:bg-gray-700/30">
+                                    <td className="p-5 text-gray-200">{user.email}</td>
+                                    <td className="p-5 text-gray-400 font-mono">{user.fssaiLicense}</td>
+                                    <td className="p-5">
+                                        <div className="flex justify-center">
+                                            <button 
+                                                onClick={() => handleApprove(user.id)}
+                                                className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-bold transition-colors"
+                                            >
+                                                Approve Partner
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            ))
+                        )}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
+};
+
 // --- Customers View ---
 const CustomersView = () => {
     const [customers, setCustomers] = useState([]);
@@ -1823,6 +1897,7 @@ const App = () => {
 
     const navItems = [
         { id: 'dashboard', label: 'Dashboard', icon: <BarChart2 size={20}/> },
+        { id: 'approvals', label: 'Pending Approvals', icon: <CheckSquare size={20}/> },
         { id: 'cashRequests', label: 'Cash Requests', icon: <DollarSign size={20}/> },
         { id: 'orders', label: 'All Orders', icon: <ShoppingBag size={20}/> },
         { id: 'payouts', label: 'Payouts', icon: <DollarSign size={20}/> },
@@ -1837,6 +1912,7 @@ const App = () => {
     const renderView = () => {
         switch(view) {
             case 'dashboard': return <DashboardView />;
+            case 'approvals': return <PendingApprovalsView />;
             case 'restaurants': return <RestaurantView />;
             case 'customers': return <CustomersView />;
             case 'orders': return <AllOrdersView />;
