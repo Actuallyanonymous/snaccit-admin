@@ -759,11 +759,11 @@ const BurnRateView = () => {
         const endDateTime = new Date(endDate);
         endDateTime.setHours(23, 59, 59, 999);
 
+        // Query only with startDate to avoid composite index requirement
         const q = query(
             collection(db, "orders"),
             where("status", "==", "completed"),
-            where("createdAt", ">=", Timestamp.fromDate(startDateTime)),
-            where("createdAt", "<=", Timestamp.fromDate(endDateTime))
+            where("createdAt", ">=", Timestamp.fromDate(startDateTime))
         );
         const orderSnap = await getDocs(q);
 
@@ -777,6 +777,13 @@ const BurnRateView = () => {
 
         orderSnap.forEach(doc => {
             const data = doc.data();
+            const orderCreatedAt = data.createdAt?.toDate();
+            
+            // Filter by end date in JavaScript
+            if (!orderCreatedAt || orderCreatedAt > endDateTime) {
+                return; // Skip orders outside the date range
+            }
+            
             const orderTotal = data.total || 0;
             const orderSubtotal = data.subtotal || orderTotal;
             const orderPoints = data.pointsValue || 0;
