@@ -739,6 +739,7 @@ const BurnRateView = () => {
     });
     const [manualExpenses, setManualExpenses] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [detailedRedemptions, setDetailedRedemptions] = useState({ points: [], coupons: [] });
     
     // Date Range State
     const [startDate, setStartDate] = useState(() => {
@@ -773,6 +774,8 @@ const BurnRateView = () => {
         let coupons = 0;
         let revenue = 0;
         let count = 0;
+        const pointsOrders = [];
+        const couponsOrders = [];
         
         // Group orders by restaurant to calculate PG charges correctly
         const ordersByRestaurant = {};
@@ -798,9 +801,34 @@ const BurnRateView = () => {
             points += orderPoints;
             revenue += orderTotal;
             
+            // Track points redemptions
+            if (orderPoints > 0) {
+                pointsOrders.push({
+                    id: doc.id,
+                    customerName: data.userName || 'Customer',
+                    customerPhone: data.userPhone || 'N/A',
+                    date: orderCreatedAt,
+                    pointsUsed: orderPoints,
+                    orderTotal: orderTotal,
+                    restaurantId: restaurantId
+                });
+            }
+            
             // Coupon discount calculation
             const disc = orderSubtotal - orderTotal - orderPoints;
-            if (disc > 0) coupons += disc;
+            if (disc > 0) {
+                coupons += disc;
+                couponsOrders.push({
+                    id: doc.id,
+                    customerName: data.userName || 'Customer',
+                    customerPhone: data.userPhone || 'N/A',
+                    date: orderCreatedAt,
+                    couponCode: data.couponCode || 'Unknown',
+                    discountAmount: disc,
+                    orderTotal: orderTotal,
+                    restaurantId: restaurantId
+                });
+            }
             
             count++;
             
@@ -839,6 +867,11 @@ const BurnRateView = () => {
             pgCharges: pgCharges,
             ordersCount: count,
             totalRevenue: revenue
+        });
+        
+        setDetailedRedemptions({
+            points: pointsOrders,
+            coupons: couponsOrders
         });
     } catch (err) {
         console.error("Fetch error:", err);
