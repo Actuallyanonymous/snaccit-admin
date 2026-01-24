@@ -958,11 +958,12 @@ const PayoutsView = () => {
             const detailedOrders = orders.map(order => {
                 const menuValue = order.subtotal || 0;
                 const custPaid = order.total || 0;
+                const isCodOrder = order.paymentDetails?.method === 'cod';
                 // Discount is difference between Menu Price and what Customer Paid
                 const discount = Math.max(0, menuValue - custPaid);
                 
-                // Fee Calculation
-                const mdrFee = (custPaid * APPLIED_RATE) / 100;
+                // Fee Calculation - COD orders have NO MDR fee
+                const mdrFee = isCodOrder ? 0 : (custPaid * APPLIED_RATE) / 100;
                 const netPayout = menuValue - mdrFee;
 
                 totalMenuValue += menuValue;
@@ -971,7 +972,7 @@ const PayoutsView = () => {
                 totalNetPayout += netPayout;
                 totalDiscountsGiven += discount;
 
-                return { ...order, mdrFee, netPayout, totalDiscount: discount };
+                return { ...order, mdrFee, netPayout, totalDiscount: discount, isCodOrder };
             });
 
             setReportData({
@@ -1186,11 +1187,18 @@ const PayoutsView = () => {
                                                 {reportData.orders.length > 0 ? reportData.orders.map(order => (
                                                     <tr key={order.id} className="hover:bg-gray-800/50 transition-colors">
                                                         <td className="p-3 text-gray-400">{order.createdAt?.toLocaleDateString()}</td>
-                                                        <td className="p-3 font-mono text-xs text-gray-500">{order.id.slice(0,6)}...</td>
+                                                        <td className="p-3 font-mono text-xs">
+                                                            <div className="flex flex-col gap-1">
+                                                                <span className="text-gray-500">{order.id.slice(0,6)}...</span>
+                                                                {order.isCodOrder && (
+                                                                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-900/20 text-amber-400 border border-amber-500/30 w-fit">💵 COD</span>
+                                                                )}
+                                                            </div>
+                                                        </td>
                                                         <td className="p-3 text-right font-medium text-gray-300">₹{order.subtotal}</td>
                                                         <td className="p-3 text-right text-blue-300">₹{order.total}</td>
                                                         <td className="p-3 text-right text-red-400">
-                                                            {order.mdrFee > 0 ? `-₹${order.mdrFee.toFixed(2)}` : <span className="text-gray-600">-</span>}
+                                                            {order.mdrFee > 0 ? `-₹${order.mdrFee.toFixed(2)}` : order.isCodOrder ? <span className="text-amber-400 text-xs font-bold">COD (₹0)</span> : <span className="text-gray-600">-</span>}
                                                         </td>
                                                         <td className="p-3 text-right font-bold text-green-400 bg-green-900/10">₹{order.netPayout.toFixed(2)}</td>
                                                         <td className="p-3 text-center">
@@ -1251,6 +1259,19 @@ const RestaurantView = () => {
         }
     };
 
+    const handleToggleCOD = async (restoId, currentStatus) => {
+        try {
+            const restoRef = doc(db, "restaurants", restoId);
+            const nextStatus = currentStatus === true ? false : true;
+            
+            await updateDoc(restoRef, { 
+                codEnabled: nextStatus 
+            });
+        } catch (err) {
+            console.error("Error updating COD status:", err);
+        }
+    };
+
     return (
         <div className="space-y-6">
             <h1 className="text-3xl font-bold text-gray-100">Restaurant Visibility</h1>
@@ -1261,12 +1282,13 @@ const RestaurantView = () => {
                         <tr>
                             <th className="p-5">Restaurant Name</th>
                             <th className="p-5 text-center">Show on Main App?</th>
+                            <th className="p-5 text-center">COD Enabled?</th>
                             <th className="p-5 text-right">Status</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-700">
                         {isLoading ? (
-                            <tr><td colSpan="3" className="text-center p-10"><Loader2 className="animate-spin mx-auto text-green-400" /></td></tr>
+                            <tr><td colSpan="4" className="text-center p-10"><Loader2 className="animate-spin mx-auto text-green-400" /></td></tr>
                         ) : (
                             restaurants.map(resto => (
                                 <tr key={resto.id} className="hover:bg-gray-700/30">
@@ -1286,6 +1308,26 @@ const RestaurantView = () => {
                                                     <div className="flex items-center gap-2 text-gray-500 bg-gray-500/10 px-3 py-1.5 rounded-full border border-gray-500/20">
                                                         <ToggleLeft size={20} />
                                                         <span className="text-[10px] font-black uppercase">Hidden</span>
+                                                    </div>
+                                                )}
+                                            </button>
+                                        </div>
+                                    </td>
+                                    <td className="p-5">
+                                        <div className="flex justify-center">
+                                            <button 
+                                                onClick={() => handleToggleCOD(resto.id, resto.codEnabled)}
+                                                className="flex items-center gap-2"
+                                            >
+                                                {resto.codEnabled === true ? (
+                                                    <div className="flex items-center gap-2 text-amber-400 bg-amber-400/10 px-3 py-1.5 rounded-full border border-amber-400/20">
+                                                        <ToggleRight size={20} />
+                                                        <span className="text-[10px] font-black uppercase">COD ON</span>
+                                                    </div>
+                                                ) : (
+                                                    <div className="flex items-center gap-2 text-gray-500 bg-gray-500/10 px-3 py-1.5 rounded-full border border-gray-500/20">
+                                                        <ToggleLeft size={20} />
+                                                        <span className="text-[10px] font-black uppercase">COD OFF</span>
                                                     </div>
                                                 )}
                                             </button>
