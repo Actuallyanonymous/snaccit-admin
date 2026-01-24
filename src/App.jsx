@@ -739,19 +739,31 @@ const BurnRateView = () => {
     });
     const [manualExpenses, setManualExpenses] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
+    
+    // Date Range State
+    const [startDate, setStartDate] = useState(() => {
+        const d = new Date();
+        d.setDate(d.getDate() - 30); // Default: last 30 days
+        return d.toISOString().split('T')[0];
+    });
+    const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
 
     useEffect(() => {
         const fetchFinancialData = async () => {
     setIsLoading(true);
-    const now = new Date();
-    // Month-to-date filter
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-
+    
     try {
+        // Create date range for query
+        const startDateTime = new Date(startDate);
+        startDateTime.setHours(0, 0, 0, 0);
+        const endDateTime = new Date(endDate);
+        endDateTime.setHours(23, 59, 59, 999);
+
         const q = query(
             collection(db, "orders"),
             where("status", "==", "completed"),
-            where("createdAt", ">=", startOfMonth)
+            where("createdAt", ">=", Timestamp.fromDate(startDateTime)),
+            where("createdAt", "<=", Timestamp.fromDate(endDateTime))
         );
         const orderSnap = await getDocs(q);
 
@@ -759,24 +771,49 @@ const BurnRateView = () => {
         let coupons = 0;
         let revenue = 0;
         let count = 0;
+        
+        // Group orders by restaurant to calculate PG charges correctly
+        const ordersByRestaurant = {};
 
         orderSnap.forEach(doc => {
             const data = doc.data();
             const orderTotal = data.total || 0;
-            const orderSubtotal = data.subtotal || orderTotal; // Fallback to total if subtotal missing
+            const orderSubtotal = data.subtotal || orderTotal;
             const orderPoints = data.pointsValue || 0;
+            const restaurantId = data.restaurantId;
 
             points += orderPoints;
             revenue += orderTotal;
             
-            // Logic: Coupon is the gap left after accounting for what the customer paid and points used
+            // Coupon discount calculation
             const disc = orderSubtotal - orderTotal - orderPoints;
             if (disc > 0) coupons += disc;
             
             count++;
+            
+            // Group by restaurant for PG charge calculation
+            if (!ordersByRestaurant[restaurantId]) {
+                ordersByRestaurant[restaurantId] = 0;
+            }
+            ordersByRestaurant[restaurantId] += orderTotal;
         });
 
-        // Fetch Expenses
+        // Calculate PG charges ONLY for restaurants with waiveFee = true
+        let pgCharges = 0;
+        const restaurantIds = Object.keys(ordersByRestaurant);
+        
+        for (const rid of restaurantIds) {
+            const restoDoc = await getDoc(doc(db, "restaurants", rid));
+            const restoData = restoDoc.data();
+            
+            // Only count PG charges if Snaccit is waiving fees for this restaurant
+            if (restoData?.waiveFee === true) {
+                const restoRevenue = ordersByRestaurant[rid];
+                pgCharges += (restoRevenue * 2.301) / 100; // 2.301% PG fee
+            }
+        }
+
+        // Fetch Manual Expenses
         const expQ = query(collection(db, "admin_expenses"));
         const expSnap = await getDocs(expQ);
         setManualExpenses(expSnap.docs.map(d => ({ id: d.id, ...d.data() })));
@@ -784,7 +821,7 @@ const BurnRateView = () => {
         setFinancials({
             pointsBurn: points,
             couponBurn: coupons,
-            pgCharges: (revenue * 0.02301), 
+            pgCharges: pgCharges,
             ordersCount: count,
             totalRevenue: revenue
         });
@@ -796,7 +833,7 @@ const BurnRateView = () => {
 };
 
         fetchFinancialData();
-    }, []);
+    }, [startDate, endDate]);
 
     const totalManualBurn = manualExpenses.reduce((acc, curr) => acc + (curr.amount || 0), 0);
     const directBurn = financials.pointsBurn + financials.couponBurn + financials.pgCharges;
@@ -806,11 +843,38 @@ const BurnRateView = () => {
 
     return (
         <div className="space-y-8">
-            <h1 className="text-3xl font-bold text-gray-100">Burn Rate Tracker</h1>
+            <div>
+                <h1 className="text-3xl font-bold text-gray-100">Burn Rate Tracker</h1>
+                
+                {/* Date Range Selector */}
+                <div className="mt-4 flex flex-wrap items-center gap-4">
+                    <div className="flex items-center gap-2">
+                        <label className="text-sm text-gray-400 font-medium">From:</label>
+                        <input 
+                            type="date" 
+                            value={startDate} 
+                            onChange={(e) => setStartDate(e.target.value)}
+                            className="bg-gray-800 border border-gray-600 text-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                        />
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <label className="text-sm text-gray-400 font-medium">To:</label>
+                        <input 
+                            type="date" 
+                            value={endDate} 
+                            onChange={(e) => setEndDate(e.target.value)}
+                            className="bg-gray-800 border border-gray-600 text-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                        />
+                    </div>
+                    <div className="text-xs text-gray-500 italic">
+                        {financials.ordersCount} completed orders in selected period
+                    </div>
+                </div>
+            </div>
             
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div className="bg-red-900/20 border border-red-500/50 p-6 rounded-2xl">
-                    <p className="text-red-400 text-sm font-bold uppercase">Total Burn (MTD)</p>
+                    <p className="text-red-400 text-sm font-bold uppercase">Total Burn (Selected Period)</p>
                     <p className="text-4xl font-black text-white mt-2">₹{grossBurn.toFixed(2)}</p>
                 </div>
                 <div className="bg-orange-900/20 border border-orange-500/50 p-6 rounded-2xl">
@@ -818,7 +882,7 @@ const BurnRateView = () => {
                     <p className="text-4xl font-black text-white mt-2">₹{directBurn.toFixed(2)}</p>
                 </div>
                 <div className="bg-blue-900/20 border border-blue-500/50 p-6 rounded-2xl">
-                    <p className="text-blue-400 text-sm font-bold uppercase">Total Revenue (MTD)</p>
+                    <p className="text-blue-400 text-sm font-bold uppercase">Total Revenue (Selected Period)</p>
                     <p className="text-4xl font-black text-white mt-2">₹{financials.totalRevenue.toFixed(2)}</p>
                 </div>
             </div>
@@ -836,7 +900,10 @@ const BurnRateView = () => {
                             <span className="text-white font-bold">₹{financials.couponBurn.toFixed(2)}</span>
                         </div>
                         <div className="flex justify-between p-4 bg-gray-900/50 rounded-xl border border-gray-700">
-                            <span className="text-gray-400 font-medium">PG Charges (2.301%)</span>
+                            <div>
+                                <span className="text-gray-400 font-medium">PG Charges (Waived Restaurants)</span>
+                                <p className="text-xs text-gray-500 mt-0.5">2.301% fee on restaurants where Snaccit covers PG costs</p>
+                            </div>
                             <span className="text-white font-bold">₹{financials.pgCharges.toFixed(2)}</span>
                         </div>
                     </div>
