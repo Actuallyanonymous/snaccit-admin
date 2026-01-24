@@ -974,6 +974,107 @@ const BurnRateView = () => {
                     </div>
                 </div>
             </div>
+            </div>
+
+            {/* Detailed Redemptions Tables */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                {/* Points Redemptions Table */}
+                <div className="bg-gray-800 p-6 rounded-2xl border border-gray-700 shadow-xl">
+                    <h3 className="text-lg font-bold mb-6 flex items-center gap-2 text-blue-400">
+                        <Gift size={20}/> Points Redemptions ({detailedRedemptions.points.length})
+                    </h3>
+                    <div className="overflow-x-auto max-h-96 overflow-y-auto">
+                        <table className="w-full text-sm">
+                            <thead className="sticky top-0 bg-gray-800 border-b border-gray-600">
+                                <tr className="text-gray-400 text-xs uppercase">
+                                    <th className="pb-3 text-left">Customer</th>
+                                    <th className="pb-3 text-left">Date</th>
+                                    <th className="pb-3 text-right">Points Used</th>
+                                    <th className="pb-3 text-right">Order Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {detailedRedemptions.points.length > 0 ? (
+                                    detailedRedemptions.points.map((item, idx) => (
+                                        <tr key={idx} className="border-b border-gray-700/50 hover:bg-gray-700/30">
+                                            <td className="py-3">
+                                                <p className="font-medium text-gray-200">{item.customerName}</p>
+                                                <p className="text-xs text-gray-500">{item.customerPhone}</p>
+                                            </td>
+                                            <td className="py-3 text-gray-400 text-xs">
+                                                {item.date.toLocaleDateString()}
+                                            </td>
+                                            <td className="py-3 text-right font-bold text-blue-400">
+                                                ₹{item.pointsUsed.toFixed(2)}
+                                            </td>
+                                            <td className="py-3 text-right text-gray-300">
+                                                ₹{item.orderTotal.toFixed(2)}
+                                            </td>
+                                        </tr>
+                                    ))
+                                ) : (
+                                    <tr>
+                                        <td colSpan="4" className="py-10 text-center text-gray-500 italic">
+                                            No points redeemed in this period
+                                        </td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                {/* Coupon Redemptions Table */}
+                <div className="bg-gray-800 p-6 rounded-2xl border border-gray-700 shadow-xl">
+                    <h3 className="text-lg font-bold mb-6 flex items-center gap-2 text-purple-400">
+                        <Tag size={20}/> Coupon Redemptions ({detailedRedemptions.coupons.length})
+                    </h3>
+                    <div className="overflow-x-auto max-h-96 overflow-y-auto">
+                        <table className="w-full text-sm">
+                            <thead className="sticky top-0 bg-gray-800 border-b border-gray-600">
+                                <tr className="text-gray-400 text-xs uppercase">
+                                    <th className="pb-3 text-left">Customer</th>
+                                    <th className="pb-3 text-left">Coupon</th>
+                                    <th className="pb-3 text-left">Date</th>
+                                    <th className="pb-3 text-right">Discount</th>
+                                tr>
+                            </thead>
+                            <tbody>
+                                {detailedRedemptions.coupons.length > 0 ? (
+                                    detailedRedemptions.coupons.map((item, idx) => (
+                                        <tr key={idx} className="border-b border-gray-700/50 hover:bg-gray-700/30">
+                                            <td className="py-3">
+                                                <p className="font-medium text-gray-200">{item.customerName}</p>
+                                                <p className="text-xs text-gray-500">{item.customerPhone}</p>
+                                            </td>
+                                            <td className="py-3">
+                                                <span className="text-xs font-mono bg-purple-900/30 text-purple-300 px-2 py-1 rounded">
+                                                    {item.couponCode}
+                                                </span>
+                                            </td>
+                                            <td className="py-3 text-gray-400 text-xs">
+                                                {item.date.toLocaleDateString()}
+                                            </td>
+                                            <td className="py-3 text-right font-bold text-purple-400">
+                                                ₹{item.discountAmount.toFixed(2)}
+                                            </td>
+                                        </tr>
+                                    ))
+                                ) : (
+                                    <tr>
+                                        <td colSpan="4" className="py-10 text-center text-gray-500 italic">
+                                            No coupons redeemed in this period
+                                        </td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
         </div>
     );
 };
