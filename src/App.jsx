@@ -1073,9 +1073,6 @@ const BurnRateView = () => {
         </div>
     );
 };
-        </div>
-    );
-};
 
 // --- [FINAL COMPLETE] Payouts & Reports View (With CSV & Full UI) ---
 const PayoutsView = () => {
