@@ -759,13 +759,15 @@ const BurnRateView = () => {
         const endDateTime = new Date(endDate);
         endDateTime.setHours(23, 59, 59, 999);
 
-        // Query only with startDate to avoid composite index requirement
+        // Query only with createdAt to avoid composite index requirement
+        // We'll filter by status in JavaScript
         const q = query(
             collection(db, "orders"),
-            where("status", "==", "completed"),
             where("createdAt", ">=", Timestamp.fromDate(startDateTime))
         );
         const orderSnap = await getDocs(q);
+        
+        console.log("Burn Rate Debug: Fetched", orderSnap.size, "orders from", startDate, "to", endDate);
 
         let points = 0;
         let coupons = 0;
@@ -779,7 +781,11 @@ const BurnRateView = () => {
             const data = doc.data();
             const orderCreatedAt = data.createdAt?.toDate();
             
-            // Filter by end date in JavaScript
+            // Filter by status and end date in JavaScript
+            if (data.status !== 'completed') {
+                return; // Skip non-completed orders
+            }
+            
             if (!orderCreatedAt || orderCreatedAt > endDateTime) {
                 return; // Skip orders outside the date range
             }
@@ -804,6 +810,8 @@ const BurnRateView = () => {
             }
             ordersByRestaurant[restaurantId] += orderTotal;
         });
+
+        console.log("Burn Rate Results: count=", count, "revenue=", revenue, "points=", points, "coupons=", coupons);
 
         // Calculate PG charges ONLY for restaurants with waiveFee = true
         let pgCharges = 0;
