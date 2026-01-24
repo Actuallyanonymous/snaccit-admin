@@ -1035,7 +1035,7 @@ const BurnRateView = () => {
                                     <th className="pb-3 text-left">Coupon</th>
                                     <th className="pb-3 text-left">Date</th>
                                     <th className="pb-3 text-right">Discount</th>
-                                tr>
+                                </tr>
                             </thead>
                             <tbody>
                                 {detailedRedemptions.coupons.length > 0 ? (
