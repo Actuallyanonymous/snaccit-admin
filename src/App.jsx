@@ -974,8 +974,6 @@ const BurnRateView = () => {
                     </div>
                 </div>
             </div>
-            </div>
-
             {/* Detailed Redemptions Tables */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                 {/* Points Redemptions Table */}
