@@ -1175,7 +1175,11 @@ const PayoutsView = () => {
                 
                 // Fee Calculation - COD orders have NO MDR fee
                 const mdrFee = isCodOrder ? 0 : (custPaid * APPLIED_RATE) / 100;
-                const netPayout = menuValue - mdrFee;
+                
+                // Payout Calculation
+                // For COD: Restaurant already got cash from customer, so we only pay the discount
+                // For Online: We pay menu value minus MDR fee
+                const netPayout = isCodOrder ? discount : (menuValue - mdrFee);
 
                 totalMenuValue += menuValue;
                 totalCustomerPaid += custPaid;
