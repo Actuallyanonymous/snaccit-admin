@@ -728,6 +728,105 @@ const AdminOrderDetailsModal = ({ isOpen, onClose, order }) => {
     );
 };
 
+// --- Add Expense Modal Component ---
+const AddExpenseModal = ({ isOpen, onClose, expenseForm, setExpenseForm, onSave, isSaving }) => {
+    if (!isOpen) return null;
+
+    return (
+        <div className="fixed inset-0 bg-black/80 z-[100] flex items-center justify-center p-4 backdrop-blur-sm">
+            <div className="bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md border border-gray-700 text-gray-100">
+                <div className="p-5 border-b border-gray-700 flex justify-between items-center bg-gray-900/50 rounded-t-2xl">
+                    <h2 className="text-xl font-bold text-green-400 flex items-center gap-2">
+                        <PlusCircle size={20}/> Add Manual Expense
+                    </h2>
+                    <button onClick={onClose} disabled={isSaving} className="text-gray-400 hover:text-white disabled:opacity-50">
+                        <XSquare size={24} />
+                    </button>
+                </div>
+                
+                <div className="p-6 space-y-4">
+                    {/* Date */}
+                    <div>
+                        <label className="block text-sm font-bold text-gray-300 mb-2">Date</label>
+                        <input 
+                            type="date" 
+                            value={expenseForm.date}
+                            onChange={(e) => setExpenseForm({...expenseForm, date: e.target.value})}
+                            className="w-full bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                            disabled={isSaving}
+                        />
+                    </div>
+
+                    {/* Category/Title */}
+                    <div>
+                        <label className="block text-sm font-bold text-gray-300 mb-2">Category/Title *</label>
+                        <input 
+                            type="text" 
+                            placeholder="e.g., Marketing, Operations, Salaries"
+                            value={expenseForm.category}
+                            onChange={(e) => setExpenseForm({...expenseForm, category: e.target.value})}
+                            className="w-full bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 focus:ring-2 focus:ring-green-500 focus:border-transparent placeholder-gray-500"
+                            disabled={isSaving}
+                        />
+                    </div>
+
+                    {/* Note/Description */}
+                    <div>
+                        <label className="block text-sm font-bold text-gray-300 mb-2">Description (Optional)</label>
+                        <textarea 
+                            rows="3"
+                            placeholder="Additional details about this expense..."
+                            value={expenseForm.note}
+                            onChange={(e) => setExpenseForm({...expenseForm, note: e.target.value})}
+                            className="w-full bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 focus:ring-2 focus:ring-green-500 focus:border-transparent placeholder-gray-500 resize-none"
+                            disabled={isSaving}
+                        />
+                    </div>
+
+                    {/* Amount */}
+                    <div>
+                        <label className="block text-sm font-bold text-gray-300 mb-2">Amount (₹) *</label>
+                        <input 
+                            type="number" 
+                            placeholder="0.00"
+                            step="0.01"
+                            min="0"
+                            value={expenseForm.amount}
+                            onChange={(e) => setExpenseForm({...expenseForm, amount: e.target.value})}
+                            className="w-full bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 focus:ring-2 focus:ring-green-500 focus:border-transparent placeholder-gray-500"
+                            disabled={isSaving}
+                        />
+                    </div>
+                </div>
+                
+                <div className="p-4 border-t border-gray-700 bg-gray-900 rounded-b-2xl flex gap-3">
+                    <button 
+                        onClick={onClose} 
+                        disabled={isSaving}
+                        className="flex-1 bg-gray-700 text-gray-200 font-bold py-3 rounded-lg hover:bg-gray-600 transition-colors disabled:opacity-50"
+                    >
+                        Cancel
+                    </button>
+                    <button 
+                        onClick={onSave}
+                        disabled={isSaving}
+                        className="flex-1 bg-green-600 text-white font-bold py-3 rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                    >
+                        {isSaving ? (
+                            <>
+                                <Loader2 className="animate-spin" size={18}/>
+                                Saving...
+                            </>
+                        ) : (
+                            'Add Expense'
+                        )}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 // --- Burn Rate & Financials View ---
 const BurnRateView = () => {
     const [financials, setFinancials] = useState({
@@ -740,6 +839,16 @@ const BurnRateView = () => {
     const [manualExpenses, setManualExpenses] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [detailedRedemptions, setDetailedRedemptions] = useState({ points: [], coupons: [] });
+    
+    // Expense Modal State
+    const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
+    const [expenseForm, setExpenseForm] = useState({
+        date: new Date().toISOString().split('T')[0],
+        category: '',
+        note: '',
+        amount: ''
+    });
+    const [isSavingExpense, setIsSavingExpense] = useState(false);
     
     // Date Range State
     const [startDate, setStartDate] = useState(() => {
@@ -883,6 +992,66 @@ const BurnRateView = () => {
         fetchFinancialData();
     }, [startDate, endDate]);
 
+    // Handle Add Expense
+    const handleAddExpense = async () => {
+        // Validation
+        if (!expenseForm.category.trim()) {
+            alert('Please enter a category/title');
+            return;
+        }
+        if (!expenseForm.amount || parseFloat(expenseForm.amount) <= 0) {
+            alert('Please enter a valid amount');
+            return;
+        }
+
+        setIsSavingExpense(true);
+        try {
+            await addDoc(collection(db, 'admin_expenses'), {
+                date: expenseForm.date,
+                category: expenseForm.category.trim(),
+                note: expenseForm.note.trim(),
+                amount: parseFloat(expenseForm.amount),
+                createdAt: serverTimestamp()
+            });
+            
+            // Reset form and close modal
+            setExpenseForm({
+                date: new Date().toISOString().split('T')[0],
+                category: '',
+                note: '',
+                amount: ''
+            });
+            setIsExpenseModalOpen(false);
+            
+            // Refresh data
+            const expQ = query(collection(db, "admin_expenses"));
+            const expSnap = await getDocs(expQ);
+            setManualExpenses(expSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+        } catch (error) {
+            console.error('Error adding expense:', error);
+            alert('Failed to add expense. Please try again.');
+        } finally {
+            setIsSavingExpense(false);
+        }
+    };
+
+    // Handle Delete Expense
+    const handleDeleteExpense = async (expenseId) => {
+        if (!window.confirm('Are you sure you want to delete this expense?')) return;
+        
+        try {
+            await deleteDoc(doc(db, 'admin_expenses', expenseId));
+            
+            // Refresh data
+            const expQ = query(collection(db, "admin_expenses"));
+            const expSnap = await getDocs(expQ);
+            setManualExpenses(expSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+        } catch (error) {
+            console.error('Error deleting expense:', error);
+            alert('Failed to delete expense.');
+        }
+    };
+
     const totalManualBurn = manualExpenses.reduce((acc, curr) => acc + (curr.amount || 0), 0);
     const directBurn = financials.pointsBurn + financials.couponBurn + financials.pgCharges;
     const grossBurn = directBurn + totalManualBurn;
@@ -891,6 +1060,16 @@ const BurnRateView = () => {
 
     return (
         <div className="space-y-8">
+            {/* Add Expense Modal */}
+            <AddExpenseModal 
+                isOpen={isExpenseModalOpen}
+                onClose={() => setIsExpenseModalOpen(false)}
+                expenseForm={expenseForm}
+                setExpenseForm={setExpenseForm}
+                onSave={handleAddExpense}
+                isSaving={isSavingExpense}
+            />
+            
             <div>
                 <h1 className="text-3xl font-bold text-gray-100">Burn Rate Tracker</h1>
                 
@@ -958,18 +1137,46 @@ const BurnRateView = () => {
                 </div>
 
                 <div className="bg-gray-800 p-6 rounded-2xl border border-gray-700 shadow-xl flex flex-col">
-                    <h3 className="text-lg font-bold mb-6 flex items-center gap-2 text-green-400"><DollarSign size={20}/> Operational & Marketing</h3>
+                    <div className="flex justify-between items-center mb-6">
+                        <h3 className="text-lg font-bold flex items-center gap-2 text-green-400"><DollarSign size={20}/> Operational & Marketing</h3>
+                        <button 
+                            onClick={() => setIsExpenseModalOpen(true)}
+                            className="bg-green-600 hover:bg-green-700 text-white text-sm font-bold px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1"
+                        >
+                            <PlusCircle size={16}/> Add Expense
+                        </button>
+                    </div>
                     <div className="flex-1 space-y-3">
                         {manualExpenses.length > 0 ? manualExpenses.map(exp => (
-                            <div key={exp.id} className="flex justify-between items-center p-3 bg-gray-700/30 rounded-xl border border-gray-600/50">
-                                <div>
-                                    <p className="font-bold text-gray-200">{exp.category}</p>
-                                    <p className="text-[10px] text-gray-500 uppercase">{exp.note}</p>
+                            <div key={exp.id} className="flex justify-between items-center p-3 bg-gray-700/30 rounded-xl border border-gray-600/50 group">
+                                <div className="flex-1">
+                                    <div className="flex items-center gap-2">
+                                        <p className="font-bold text-gray-200">{exp.category}</p>
+                                        {exp.date && <span className="text-xs text-gray-500">({new Date(exp.date).toLocaleDateString()})</span>}
+                                    </div>
+                                    {exp.note && <p className="text-xs text-gray-500 mt-0.5">{exp.note}</p>}
                                 </div>
-                                <span className="font-mono font-bold text-red-400">-₹{exp.amount}</span>
+                                <div className="flex items-center gap-3">
+                                    <span className="font-mono font-bold text-red-400">-₹{exp.amount}</span>
+                                    <button 
+                                        onClick={() => handleDeleteExpense(exp.id)}
+                                        className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-300 transition-all"
+                                        title="Delete expense"
+                                    >
+                                        <XSquare size={18}/>
+                                    </button>
+                                </div>
                             </div>
                         )) : (
-                            <div className="text-center py-10 text-gray-500 italic">No manual expenses logged.</div>
+                            <div className="text-center py-10">
+                                <p className="text-gray-500 italic mb-3">No manual expenses logged.</p>
+                                <button 
+                                    onClick={() => setIsExpenseModalOpen(true)}
+                                    className="bg-green-600/20 border border-green-600/50 hover:bg-green-600/30 text-green-400 text-sm font-bold px-4 py-2 rounded-lg transition-colors"
+                                >
+                                    + Add Your First Expense
+                                </button>
+                            </div>
                         )}
                     </div>
                 </div>
