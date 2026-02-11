@@ -2097,7 +2097,8 @@ const CouponsView = () => {
         value: 0,
         minOrderValue: 0,
         expiryDate: '',
-        usageLimit: 'once' 
+        usageLimit: 'once',
+        allowAsap: true
     });
 
     useEffect(() => {
@@ -2110,8 +2111,8 @@ const CouponsView = () => {
     }, []);
 
     const handleInputChange = (e) => {
-        const { name, value } = e.target;
-        setNewCoupon(prev => ({ ...prev, [name]: value }));
+        const { name, value, type, checked } = e.target;
+        setNewCoupon(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
     };
 
     const handleCreateCoupon = async (e) => {
@@ -2129,13 +2130,14 @@ const CouponsView = () => {
                 value: Number(newCoupon.value),
                 minOrderValue: Number(newCoupon.minOrderValue),
                 usageLimit: newCoupon.usageLimit, 
+                allowAsap: newCoupon.allowAsap,
                 isActive: true,
                 createdAt: serverTimestamp(),
                 expiryDate: new Date(newCoupon.expiryDate)
             });
             
             // Reset state
-            setNewCoupon({ code: '', type: 'fixed', value: 0, minOrderValue: 0, expiryDate: '', usageLimit: 'once' });
+            setNewCoupon({ code: '', type: 'fixed', value: 0, minOrderValue: 0, expiryDate: '', usageLimit: 'once', allowAsap: true });
         } catch (error) {
             console.error("Error creating coupon:", error);
             alert("Failed to create coupon.");
@@ -2210,6 +2212,20 @@ const CouponsView = () => {
                         <label className="text-xs text-gray-400 mb-1">Expiry Date</label>
                         <input name="expiryDate" type="date" value={newCoupon.expiryDate} onChange={handleInputChange} className="bg-gray-700 border border-gray-600 rounded-lg p-2 text-white outline-none focus:ring-2 focus:ring-green-500" required />
                     </div>
+
+                    {/* Column 7: ASAP Toggle */}
+                    <div className="flex flex-col justify-end">
+                        <label className="flex items-center gap-2 cursor-pointer bg-gray-700 border border-gray-600 rounded-lg p-2.5 hover:bg-gray-600 transition-colors">
+                            <input 
+                                name="allowAsap" 
+                                type="checkbox" 
+                                checked={newCoupon.allowAsap} 
+                                onChange={handleInputChange} 
+                                className="w-4 h-4 text-green-600 bg-gray-700 border-gray-600 rounded focus:ring-2 focus:ring-green-500"
+                            />
+                            <span className="text-xs text-gray-300">Allow for ASAP Orders</span>
+                        </label>
+                    </div>
                     
                     {/* Submit Button spanning across or sitting in a column */}
                     <div className="md:col-span-3 mt-4">
@@ -2232,13 +2248,14 @@ const CouponsView = () => {
                                 <th className="p-4">Value</th>
                                 <th className="p-4">Min Order</th>
                                 <th className="p-4">Expires</th>
+                                <th className="p-4">ASAP</th>
                                 <th className="p-4">Status</th>
                                 <th className="p-4">Actions</th>
                             </tr>
                         </thead>
                         <tbody>
                             {isLoading ? (
-                                <tr><td colSpan="8" className="text-center p-4">Loading...</td></tr>
+                                <tr><td colSpan="9" className="text-center p-4">Loading...</td></tr>
                             ) : coupons.map(c => (
                                 <tr key={c.id} className="border-b border-gray-700 text-gray-300">
                                     <td className="p-4 font-mono font-bold text-white">{c.id}</td>
@@ -2251,6 +2268,11 @@ const CouponsView = () => {
                                     <td className="p-4">{c.type === 'fixed' ? `₹${c.value}` : `${c.value}%`}</td>
                                     <td className="p-4">₹{c.minOrderValue}</td>
                                     <td className="p-4">{c.expiryDate?.toDate ? c.expiryDate.toDate().toLocaleDateString() : 'N/A'}</td>
+                                    <td className="p-4">
+                                        <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${c.allowAsap !== false ? 'bg-green-900 text-green-300' : 'bg-orange-900 text-orange-300'}`}>
+                                            {c.allowAsap !== false ? 'Yes' : 'No'}
+                                        </span>
+                                    </td>
                                     <td className="p-4">
                                         <button onClick={() => handleToggleActive(c.id, c.isActive)} className="flex items-center gap-2 transition-colors">
                                             {c.isActive ? <ToggleRight size={24} className="text-green-400"/> : <ToggleLeft size={24} className="text-gray-500"/>}
