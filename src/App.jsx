@@ -3,7 +3,7 @@ import {
     BarChart2, Store, Users, LogOut, Loader2, 
     CheckSquare, XSquare, ShoppingBag, Tag, PlusCircle, 
     ToggleLeft, ToggleRight, Eye, FileText,
-    DollarSign, ChevronRight, Download, Inbox, Clock, Gift, Search, Phone
+    DollarSign, ChevronRight, Download, Inbox, Clock, Gift, Search, Phone, Trash2
 } from 'lucide-react';
 import { initializeApp } from "firebase/app";
 import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "firebase/auth";
@@ -2147,6 +2147,19 @@ const CouponsView = () => {
         await updateDoc(couponRef, { isActive: !currentStatus });
     };
 
+    const handleDeleteCoupon = async (couponId) => {
+        if (window.confirm(`Are you sure you want to delete coupon "${couponId}"? This action cannot be undone.`)) {
+            try {
+                const couponRef = doc(db, "coupons", couponId);
+                await deleteDoc(couponRef);
+                alert("Coupon deleted successfully!");
+            } catch (error) {
+                console.error("Error deleting coupon:", error);
+                alert("Failed to delete coupon. Please try again.");
+            }
+        }
+    };
+
     return (
         <div>
             <h1 className="text-3xl font-bold text-gray-100">Coupon Management</h1>
@@ -2220,11 +2233,12 @@ const CouponsView = () => {
                                 <th className="p-4">Min Order</th>
                                 <th className="p-4">Expires</th>
                                 <th className="p-4">Status</th>
+                                <th className="p-4">Actions</th>
                             </tr>
                         </thead>
                         <tbody>
                             {isLoading ? (
-                                <tr><td colSpan="7" className="text-center p-4">Loading...</td></tr>
+                                <tr><td colSpan="8" className="text-center p-4">Loading...</td></tr>
                             ) : coupons.map(c => (
                                 <tr key={c.id} className="border-b border-gray-700 text-gray-300">
                                     <td className="p-4 font-mono font-bold text-white">{c.id}</td>
@@ -2241,6 +2255,15 @@ const CouponsView = () => {
                                         <button onClick={() => handleToggleActive(c.id, c.isActive)} className="flex items-center gap-2 transition-colors">
                                             {c.isActive ? <ToggleRight size={24} className="text-green-400"/> : <ToggleLeft size={24} className="text-gray-500"/>}
                                             <span className={c.isActive ? 'text-green-400' : 'text-gray-500'}>{c.isActive ? 'Active' : 'Inactive'}</span>
+                                        </button>
+                                    </td>
+                                    <td className="p-4">
+                                        <button 
+                                            onClick={() => handleDeleteCoupon(c.id)} 
+                                            className="p-2 bg-gray-700 hover:bg-red-600 rounded-lg transition-colors text-gray-400 hover:text-white"
+                                            title="Delete Coupon"
+                                        >
+                                            <Trash2 size={18} />
                                         </button>
                                     </td>
                                 </tr>
