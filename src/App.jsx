@@ -682,8 +682,8 @@ const AdminOrderDetailsModal = ({ isOpen, onClose, order }) => {
                             </div>
                             <div className="flex justify-between border-b border-gray-600 pb-1">
                                 <span className="text-gray-400">Payment Method</span>
-                                <span className={`font-semibold px-2 py-0.5 rounded text-xs ${order.paymentMethod === 'cod' ? 'bg-amber-900/60 text-amber-300' : 'bg-emerald-900/60 text-emerald-300'}`}>
-                                    {order.paymentMethod === 'cod' ? 'Cash on Delivery' : 'Online (Prepaid)'}
+                                <span className={`font-semibold px-2 py-0.5 rounded text-xs ${order.paymentDetails?.method === 'cod' ? 'bg-amber-900/60 text-amber-300' : 'bg-emerald-900/60 text-emerald-300'}`}>
+                                    {order.paymentDetails?.method === 'cod' ? 'Cash on Delivery' : 'Online (Prepaid)'}
                                 </span>
                             </div>
                             <div className="flex justify-between">
