@@ -2055,57 +2055,90 @@ const AllOrdersView = () => {
                 order={selectedOrder} 
             />
 
-            <h1 className="text-3xl font-bold text-gray-100">All Orders</h1>
-            <p className="text-gray-400 mt-2">A live feed of all orders across the platform.</p>
-            <div className="mt-8 bg-gray-800 p-6 rounded-lg shadow-lg">
-                <div className="overflow-x-auto">
-                    <table className="w-full text-left min-w-[600px]">
-                        <thead>
-                            <tr className="border-b border-gray-700">
-                                <th className="p-4">Date</th>
-                                <th className="p-4">Restaurant</th>
-                                <th className="p-4">Customer ID / Email</th>
-                                <th className="p-4">Total</th>
-                                <th className="p-4">Status</th>
-                                <th className="p-4">View</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {isLoading ? (
-                                <tr><td colSpan="6" className="text-center p-4">Loading...</td></tr>
-                            ) : (
-                                orders.map(order => (
-                                    <tr key={order.id} className="border-b border-gray-700 hover:bg-gray-700/50">
-                                        <td className="p-4 text-gray-400 text-sm">{order.createdAt}</td>
-                                        <td className="p-4 font-medium">{order.restaurantName}</td>
-                                        <td className="p-4 text-gray-400">
-                                            <div className="flex flex-col">
-                                                <span className="text-xs text-gray-500 uppercase">ID: {order.userId.slice(0,6)}...</span>
-                                                <span>{order.userEmail}</span>
-                                            </div>
-                                        </td>
-                                        <td className="p-4 font-medium text-green-400">₹{order.total.toFixed(2)}</td>
-                                        <td className="p-4">
-                                            <span className={`px-2 py-1 text-xs font-bold rounded-full capitalize ${statusColors[order.status] || 'bg-gray-700 text-gray-300'}`}>
-                                                {order.status?.replace('_', ' ') || 'N/A'}
-                                            </span>
-                                        </td>
-                                        <td className="p-4">
-                                            <button 
-                                                onClick={() => setSelectedOrder(order)}
-                                                className="text-blue-400 hover:text-blue-300 p-2 rounded-full hover:bg-gray-700 transition-colors"
-                                                title="View Full Details"
-                                            >
-                                                <Eye size={20} />
-                                            </button>
-                                        </td>
-                                    </tr>
-                                ))
-                            )}
-                        </tbody>
-                    </table>
+            <h1 className="text-2xl md:text-3xl font-bold text-gray-100">All Orders</h1>
+            <p className="text-gray-400 mt-1 text-sm md:text-base">A live feed of all orders across the platform.</p>
+
+            {isLoading ? (
+                <div className="mt-8 flex items-center justify-center gap-2 text-gray-400 py-12">
+                    <Loader2 className="animate-spin" size={20} /> Loading orders...
                 </div>
-            </div>
+            ) : (
+                <>
+                    {/* --- Mobile Card Layout (visible below md) --- */}
+                    <div className="mt-4 space-y-3 md:hidden">
+                        {orders.map(order => (
+                            <div key={order.id} 
+                                 className="bg-gray-800 rounded-xl p-4 border border-gray-700 active:bg-gray-700/50 transition-colors"
+                                 onClick={() => setSelectedOrder(order)}
+                            >
+                                <div className="flex justify-between items-start mb-2">
+                                    <div className="min-w-0 flex-1 pr-3">
+                                        <p className="font-semibold text-gray-100 text-sm truncate">{order.restaurantName}</p>
+                                        <p className="text-xs text-gray-500 mt-0.5 truncate">{order.userEmail}</p>
+                                    </div>
+                                    <span className={`px-2 py-1 text-[10px] font-bold rounded-full capitalize whitespace-nowrap ${statusColors[order.status] || 'bg-gray-700 text-gray-300'}`}>
+                                        {order.status?.replace('_', ' ') || 'N/A'}
+                                    </span>
+                                </div>
+                                <div className="flex justify-between items-center pt-2 border-t border-gray-700/50">
+                                    <span className="text-green-400 font-bold text-base">₹{order.total.toFixed(2)}</span>
+                                    <div className="flex items-center gap-3">
+                                        <span className="text-[11px] text-gray-500">{order.createdAt}</span>
+                                        <Eye size={16} className="text-blue-400 flex-shrink-0" />
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* --- Desktop Table Layout (visible at md and above) --- */}
+                    <div className="mt-8 bg-gray-800 p-6 rounded-lg shadow-lg hidden md:block">
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left">
+                                <thead>
+                                    <tr className="border-b border-gray-700">
+                                        <th className="p-4">Date</th>
+                                        <th className="p-4">Restaurant</th>
+                                        <th className="p-4">Customer ID / Email</th>
+                                        <th className="p-4">Total</th>
+                                        <th className="p-4">Status</th>
+                                        <th className="p-4">View</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {orders.map(order => (
+                                        <tr key={order.id} className="border-b border-gray-700 hover:bg-gray-700/50">
+                                            <td className="p-4 text-gray-400 text-sm">{order.createdAt}</td>
+                                            <td className="p-4 font-medium">{order.restaurantName}</td>
+                                            <td className="p-4 text-gray-400">
+                                                <div className="flex flex-col">
+                                                    <span className="text-xs text-gray-500 uppercase">ID: {order.userId.slice(0,6)}...</span>
+                                                    <span>{order.userEmail}</span>
+                                                </div>
+                                            </td>
+                                            <td className="p-4 font-medium text-green-400">₹{order.total.toFixed(2)}</td>
+                                            <td className="p-4">
+                                                <span className={`px-2 py-1 text-xs font-bold rounded-full capitalize ${statusColors[order.status] || 'bg-gray-700 text-gray-300'}`}>
+                                                    {order.status?.replace('_', ' ') || 'N/A'}
+                                                </span>
+                                            </td>
+                                            <td className="p-4">
+                                                <button 
+                                                    onClick={() => setSelectedOrder(order)}
+                                                    className="text-blue-400 hover:text-blue-300 p-2 rounded-full hover:bg-gray-700 transition-colors"
+                                                    title="View Full Details"
+                                                >
+                                                    <Eye size={20} />
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </>
+            )}
         </div>
     );
 };
