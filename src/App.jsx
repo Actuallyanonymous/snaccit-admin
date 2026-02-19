@@ -670,6 +670,29 @@ const AdminOrderDetailsModal = ({ isOpen, onClose, order }) => {
                         )}
                     </div>
 
+                    {/* Order Details Section */}
+                    <div className="bg-gray-700/50 p-4 rounded-xl border border-gray-600">
+                        <h3 className="text-sm font-bold text-purple-400 uppercase tracking-wider mb-3">Order Details</h3>
+                        <div className="space-y-2 text-sm">
+                            <div className="flex justify-between border-b border-gray-600 pb-1">
+                                <span className="text-gray-400">Delivery Slot</span>
+                                <span className={`font-semibold px-2 py-0.5 rounded text-xs ${order.arrivalTime === 'ASAP' ? 'bg-amber-900/60 text-amber-300' : 'bg-blue-900/60 text-blue-300'}`}>
+                                    {order.arrivalTime || 'N/A'}
+                                </span>
+                            </div>
+                            <div className="flex justify-between border-b border-gray-600 pb-1">
+                                <span className="text-gray-400">Payment Method</span>
+                                <span className={`font-semibold px-2 py-0.5 rounded text-xs ${order.paymentMethod === 'cod' ? 'bg-amber-900/60 text-amber-300' : 'bg-emerald-900/60 text-emerald-300'}`}>
+                                    {order.paymentMethod === 'cod' ? 'Cash on Delivery' : 'Online (Prepaid)'}
+                                </span>
+                            </div>
+                            <div className="flex justify-between">
+                                <span className="text-gray-400">Status</span>
+                                <span className="font-semibold text-gray-200 capitalize">{order.status?.replace('_', ' ') || 'N/A'}</span>
+                            </div>
+                        </div>
+                    </div>
+
                     {/* Order Items Section */}
                     <div>
                         <h3 className="text-sm font-bold text-gray-300 uppercase tracking-wider mb-3">Items Ordered</h3>
@@ -2013,13 +2036,14 @@ const AllOrdersView = () => {
         return () => unsubscribe();
     }, []);
 
-    // Row background color based on status
-    const getRowStyle = (status) => {
-        switch(status) {
-            case 'completed': return 'bg-green-900/30 hover:bg-green-900/50 border-green-800/50';
-            case 'payment_failed': return 'bg-red-900/30 hover:bg-red-900/50 border-red-800/50';
-            default: return 'hover:bg-gray-700/50 border-gray-700';
-        }
+    const statusColors = {
+        pending: 'bg-yellow-900 text-yellow-300',
+        accepted: 'bg-blue-900 text-blue-300',
+        preparing: 'bg-indigo-900 text-indigo-300',
+        ready: 'bg-green-900 text-green-300',
+        completed: 'bg-gray-700 text-gray-300',
+        declined: 'bg-red-900 text-red-300',
+        payment_failed: 'bg-red-900 text-red-300',
     };
 
     return (
@@ -2033,44 +2057,25 @@ const AllOrdersView = () => {
 
             <h1 className="text-3xl font-bold text-gray-100">All Orders</h1>
             <p className="text-gray-400 mt-2">A live feed of all orders across the platform.</p>
-
-            {/* Status Color Legend */}
-            <div className="mt-4 flex flex-wrap items-center gap-4 bg-gray-800 px-4 py-3 rounded-lg border border-gray-700">
-                <span className="text-xs text-gray-400 font-bold uppercase">Status Key:</span>
-                <div className="flex items-center gap-1.5">
-                    <span className="w-3 h-3 rounded-sm bg-green-500/60"></span>
-                    <span className="text-xs text-gray-300">Completed</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                    <span className="w-3 h-3 rounded-sm bg-red-500/60"></span>
-                    <span className="text-xs text-gray-300">Payment Failed</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                    <span className="w-3 h-3 rounded-sm bg-gray-600"></span>
-                    <span className="text-xs text-gray-300">Other (Pending / Preparing / etc.)</span>
-                </div>
-            </div>
-
-            <div className="mt-4 bg-gray-800 p-6 rounded-lg shadow-lg">
+            <div className="mt-8 bg-gray-800 p-6 rounded-lg shadow-lg">
                 <div className="overflow-x-auto">
-                    <table className="w-full text-left min-w-[700px]">
+                    <table className="w-full text-left min-w-[600px]">
                         <thead>
                             <tr className="border-b border-gray-700">
                                 <th className="p-4">Date</th>
                                 <th className="p-4">Restaurant</th>
                                 <th className="p-4">Customer ID / Email</th>
                                 <th className="p-4">Total</th>
-                                <th className="p-4">Slot</th>
-                                <th className="p-4">Payment</th>
+                                <th className="p-4">Status</th>
                                 <th className="p-4">View</th>
                             </tr>
                         </thead>
                         <tbody>
                             {isLoading ? (
-                                <tr><td colSpan="7" className="text-center p-4">Loading...</td></tr>
+                                <tr><td colSpan="6" className="text-center p-4">Loading...</td></tr>
                             ) : (
                                 orders.map(order => (
-                                    <tr key={order.id} className={`border-b ${getRowStyle(order.status)}`}>
+                                    <tr key={order.id} className="border-b border-gray-700 hover:bg-gray-700/50">
                                         <td className="p-4 text-gray-400 text-sm">{order.createdAt}</td>
                                         <td className="p-4 font-medium">{order.restaurantName}</td>
                                         <td className="p-4 text-gray-400">
@@ -2081,13 +2086,8 @@ const AllOrdersView = () => {
                                         </td>
                                         <td className="p-4 font-medium text-green-400">₹{order.total.toFixed(2)}</td>
                                         <td className="p-4">
-                                            <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${order.arrivalTime === 'ASAP' ? 'bg-amber-900/60 text-amber-300' : 'bg-blue-900/60 text-blue-300'}`}>
-                                                {order.arrivalTime || 'N/A'}
-                                            </span>
-                                        </td>
-                                        <td className="p-4">
-                                            <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${order.paymentMethod === 'cod' ? 'bg-amber-900/60 text-amber-300' : 'bg-emerald-900/60 text-emerald-300'}`}>
-                                                {order.paymentMethod === 'cod' ? 'COD' : 'Prepaid'}
+                                            <span className={`px-2 py-1 text-xs font-bold rounded-full capitalize ${statusColors[order.status] || 'bg-gray-700 text-gray-300'}`}>
+                                                {order.status?.replace('_', ' ') || 'N/A'}
                                             </span>
                                         </td>
                                         <td className="p-4">
