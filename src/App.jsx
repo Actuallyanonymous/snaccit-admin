@@ -9,6 +9,7 @@ import {
 import { initializeApp } from "firebase/app";
 import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "firebase/auth";
 import { getFirestore, doc, getDoc, collection, onSnapshot, query, where, updateDoc, orderBy, setDoc, serverTimestamp, getDocs, addDoc, limit, deleteDoc, Timestamp } from "firebase/firestore";
+import { getFunctions, httpsCallable } from "firebase/functions";
 import { 
     LineChart, Line, AreaChart, Area, XAxis, YAxis, 
     CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar 
@@ -28,6 +29,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
+const functions = getFunctions(app, 'us-central1');
 
 // --- Login Page Component ---
 const AdminLoginPage = () => {
@@ -2709,60 +2711,17 @@ const BroadcastView = () => {
         setSendResult(null);
 
         try {
-            // 1. Fetch all users with FCM tokens
-            const usersSnapshot = await getDocs(query(collection(db, "users"), where("fcmToken", "!=", "")));
-            const tokens = [];
-            usersSnapshot.docs.forEach(doc => {
-                const token = doc.data().fcmToken;
-                if (token) tokens.push(token);
-            });
+            const sendBroadcast = httpsCallable(functions, 'sendBroadcast');
+            const result = await sendBroadcast({ title: title.trim(), body: body.trim() });
+            const { success, failed, total } = result.data;
 
-            // 2. Send notifications via FCM legacy API
-            let success = 0;
-            let failed = 0;
-            const API_KEY = 'AIzaSyDDFCPcfBKcvrkjqidsXstHqe8Og_3u36k';
-
-            // Send in batches of 10 to avoid rate limits
-            for (let i = 0; i < tokens.length; i += 10) {
-                const batch = tokens.slice(i, i + 10);
-                // eslint-disable-next-line no-loop-func
-                const results = await Promise.allSettled(
-                    batch.map(token =>
-                        fetch('https://fcm.googleapis.com/fcm/send', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'Authorization': `key=${API_KEY}`
-                            },
-                            body: JSON.stringify({
-                                to: token,
-                                notification: { title: title.trim(), body: body.trim() },
-                                webpush: { notification: { icon: '/logo192.png' } }
-                            })
-                        }).then(res => res.ok ? 'ok' : 'fail')
-                    )
-                );
-                const batchSuccess = results.filter(r => r.status === 'fulfilled' && r.value === 'ok').length;
-                success += batchSuccess;
-                failed += (results.length - batchSuccess);
-            }
-
-            // 3. Log the broadcast to Firestore
-            await addDoc(collection(db, "broadcasts"), {
-                title: title.trim(),
-                body: body.trim(),
-                sentAt: serverTimestamp(),
-                sentBy: auth.currentUser?.email || 'admin',
-                recipientCount: success,
-                failedCount: failed
-            });
-
-            setSendResult({ success, failed });
+            setSendResult({ success, failed, total });
             setTitle('');
             setBody('');
         } catch (error) {
             console.error('Broadcast error:', error);
-            setSendResult({ success: 0, failed: -1, error: error.message });
+            const message = error.message || 'Unknown error';
+            setSendResult({ success: 0, failed: -1, error: message });
         } finally {
             setIsSending(false);
         }
