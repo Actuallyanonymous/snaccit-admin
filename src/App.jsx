@@ -9,7 +9,6 @@ import {
 import { initializeApp } from "firebase/app";
 import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "firebase/auth";
 import { getFirestore, doc, getDoc, collection, onSnapshot, query, where, updateDoc, orderBy, setDoc, serverTimestamp, getDocs, addDoc, limit, deleteDoc, Timestamp } from "firebase/firestore";
-import { getFunctions, httpsCallable } from "firebase/functions";
 import { 
     LineChart, Line, AreaChart, Area, XAxis, YAxis, 
     CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar 
@@ -29,7 +28,6 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
-const functions = getFunctions(app, 'us-central1');
 
 // --- Login Page Component ---
 const AdminLoginPage = () => {
@@ -2711,11 +2709,25 @@ const BroadcastView = () => {
         setSendResult(null);
 
         try {
-            const sendBroadcast = httpsCallable(functions, 'sendBroadcast');
-            const result = await sendBroadcast({ title: title.trim(), body: body.trim() });
-            const { success, failed, total } = result.data;
+            // Get the current user's auth token
+            const idToken = await auth.currentUser.getIdToken();
+            
+            const response = await fetch('https://us-central1-snaccit-functions-us.cloudfunctions.net/sendBroadcast', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${idToken}`
+                },
+                body: JSON.stringify({ title: title.trim(), body: body.trim() })
+            });
 
-            setSendResult({ success, failed, total });
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || `Server error (${response.status})`);
+            }
+
+            setSendResult({ success: data.success, failed: data.failed, total: data.total });
             setTitle('');
             setBody('');
         } catch (error) {
