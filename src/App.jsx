@@ -3,7 +3,8 @@ import {
     BarChart2, Store, Users, LogOut, Loader2, 
     CheckSquare, XSquare, ShoppingBag, Tag, PlusCircle, 
     ToggleLeft, ToggleRight, Eye, FileText,
-    DollarSign, ChevronRight, Download, Inbox, Clock, Gift, Search, Phone, Trash2
+    DollarSign, ChevronRight, Download, Inbox, Clock, Gift, Search, Phone, Trash2,
+    Bell, Send
 } from 'lucide-react';
 import { initializeApp } from "firebase/app";
 import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "firebase/auth";
@@ -1966,70 +1967,222 @@ const PendingApprovalsView = () => {
     );
 };
 
-// --- Customers View ---
+// --- Enhanced Customers View ---
 const CustomersView = () => {
     const [customers, setCustomers] = useState([]);
+    const [orderStats, setOrderStats] = useState({});
     const [isLoading, setIsLoading] = useState(true);
+    const [searchTerm, setSearchTerm] = useState('');
+    const [sortBy, setSortBy] = useState('name'); // 'name', 'orders', 'spend', 'points'
 
     useEffect(() => {
-        const q = query(collection(db, "users"), orderBy("email"));
-        const unsubscribe = onSnapshot(q, (snapshot) => {
+        // Fetch users
+        const qUsers = query(collection(db, "users"), orderBy("email"));
+        const unsubUsers = onSnapshot(qUsers, (snapshot) => {
             const allUsers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             const customerUsers = allUsers.filter(user => user.role !== 'admin' && user.role !== 'restaurant');
             setCustomers(customerUsers);
+        });
+
+        // Fetch all orders to compute per-customer stats
+        const qOrders = query(collection(db, "orders"));
+        const unsubOrders = onSnapshot(qOrders, (snapshot) => {
+            const stats = {};
+            snapshot.docs.forEach(doc => {
+                const data = doc.data();
+                const uid = data.userId;
+                if (!uid) return;
+                if (!stats[uid]) stats[uid] = { totalOrders: 0, totalSpend: 0, lastOrder: null };
+                stats[uid].totalOrders += 1;
+                stats[uid].totalSpend += (data.total || 0);
+                const orderDate = data.createdAt?.toDate?.();
+                if (orderDate && (!stats[uid].lastOrder || orderDate > stats[uid].lastOrder)) {
+                    stats[uid].lastOrder = orderDate;
+                }
+            });
+            setOrderStats(stats);
             setIsLoading(false);
         });
-        return () => unsubscribe();
+
+        return () => { unsubUsers(); unsubOrders(); };
     }, []);
+
+    const filteredCustomers = customers.filter(user => {
+        if (!searchTerm) return true;
+        const term = searchTerm.toLowerCase();
+        return (
+            (user.email || '').toLowerCase().includes(term) ||
+            (user.username || '').toLowerCase().includes(term) ||
+            (user.mobile || '').toLowerCase().includes(term)
+        );
+    }).sort((a, b) => {
+        const statsA = orderStats[a.id] || { totalOrders: 0, totalSpend: 0 };
+        const statsB = orderStats[b.id] || { totalOrders: 0, totalSpend: 0 };
+        switch (sortBy) {
+            case 'orders': return statsB.totalOrders - statsA.totalOrders;
+            case 'spend': return statsB.totalSpend - statsA.totalSpend;
+            case 'points': return (b.points || 0) - (a.points || 0);
+            default: return (a.username || a.email || '').localeCompare(b.username || b.email || '');
+        }
+    });
 
     return (
         <div>
-            <h1 className="text-3xl font-bold text-gray-100">Customer Management</h1>
-            <p className="text-gray-400 mt-2">View all registered customers on the platform.</p>
-            <div className="mt-8 bg-gray-800 p-6 rounded-lg shadow-lg">
-                <div className="overflow-x-auto">
-                    <table className="w-full text-left">
-                        <thead>
-                            <tr className="border-b border-gray-700">
-                                <th className="p-4">Email</th>
-                                <th className="p-4">Username</th>
-                                <th className="p-4">Mobile</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {isLoading ? (
-                                <tr><td colSpan="3" className="text-center p-4">Loading...</td></tr>
-                            ) : (
-                                customers.map(user => (
-                                    <tr key={user.id} className="border-b border-gray-700 hover:bg-gray-700/50">
-                                        <td className="p-4 font-medium">{user.email}</td>
-                                        <td className="p-4 text-gray-400">{user.username || 'N/A'}</td>
-                                        <td className="p-4 text-gray-400">{user.mobile || 'N/A'}</td>
-                                    </tr>
-                                ))
-                            )}
-                        </tbody>
-                    </table>
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                <div>
+                    <h1 className="text-2xl md:text-3xl font-bold text-gray-100">Customer Management</h1>
+                    <p className="text-gray-400 mt-1 text-sm">
+                        {isLoading ? 'Loading...' : `${filteredCustomers.length} customer${filteredCustomers.length !== 1 ? 's' : ''}`}
+                        {searchTerm && ` matching "${searchTerm}"`}
+                    </p>
                 </div>
             </div>
+
+            {/* Search & Sort Bar */}
+            <div className="mt-4 flex flex-col sm:flex-row gap-3">
+                <div className="relative flex-1">
+                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+                    <input
+                        type="text"
+                        placeholder="Search by email, username, or mobile..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        className="w-full pl-9 pr-4 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-gray-200 focus:outline-none focus:border-green-500 placeholder-gray-500"
+                    />
+                </div>
+                <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value)}
+                    className="px-3 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-gray-300 focus:outline-none focus:border-green-500"
+                >
+                    <option value="name">Sort: Name</option>
+                    <option value="orders">Sort: Most Orders</option>
+                    <option value="spend">Sort: Highest Spend</option>
+                    <option value="points">Sort: Most Points</option>
+                </select>
+            </div>
+
+            {isLoading ? (
+                <div className="mt-8 flex items-center justify-center gap-2 text-gray-400 py-12">
+                    <Loader2 className="animate-spin" size={20} /> Loading customers...
+                </div>
+            ) : filteredCustomers.length === 0 ? (
+                <div className="mt-8 bg-gray-800 rounded-xl p-12 text-center">
+                    <Users size={40} className="mx-auto text-gray-600 mb-3" />
+                    <p className="text-gray-500">No customers found{searchTerm ? ` for "${searchTerm}"` : ''}</p>
+                </div>
+            ) : (
+                <>
+                    {/* Mobile Card Layout */}
+                    <div className="mt-4 space-y-3 md:hidden">
+                        {filteredCustomers.map(user => {
+                            const stats = orderStats[user.id] || { totalOrders: 0, totalSpend: 0, lastOrder: null };
+                            return (
+                                <div key={user.id} className="bg-gray-800 rounded-xl p-4 border border-gray-700">
+                                    <div className="flex justify-between items-start mb-3">
+                                        <div className="min-w-0 flex-1 pr-3">
+                                            <p className="font-semibold text-gray-100 text-sm truncate">{user.username || 'No username'}</p>
+                                            <p className="text-xs text-gray-500 mt-0.5 truncate">{user.email}</p>
+                                        </div>
+                                        <span className="px-2 py-1 text-[10px] font-bold rounded-full bg-amber-900/50 text-amber-300 whitespace-nowrap">
+                                            ✨ {user.points || 0} pts
+                                        </span>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2 text-xs">
+                                        <div className="bg-gray-900/50 rounded-lg p-2.5">
+                                            <p className="text-gray-500 mb-0.5">Phone</p>
+                                            <p className="text-gray-300 font-medium">{user.mobile || 'N/A'}</p>
+                                        </div>
+                                        <div className="bg-gray-900/50 rounded-lg p-2.5">
+                                            <p className="text-gray-500 mb-0.5">Orders</p>
+                                            <p className="text-gray-300 font-bold text-base">{stats.totalOrders}</p>
+                                        </div>
+                                        <div className="bg-gray-900/50 rounded-lg p-2.5">
+                                            <p className="text-gray-500 mb-0.5">Total Spend</p>
+                                            <p className="text-green-400 font-bold">₹{stats.totalSpend.toFixed(0)}</p>
+                                        </div>
+                                        <div className="bg-gray-900/50 rounded-lg p-2.5">
+                                            <p className="text-gray-500 mb-0.5">Last Order</p>
+                                            <p className="text-gray-300 font-medium">{stats.lastOrder ? stats.lastOrder.toLocaleDateString('en-IN', {day:'numeric', month:'short'}) : 'Never'}</p>
+                                        </div>
+                                    </div>
+                                    {user.createdAt && (
+                                        <p className="text-[10px] text-gray-600 mt-2">Joined {user.createdAt?.toDate ? user.createdAt.toDate().toLocaleDateString('en-IN', {day:'numeric', month:'short', year:'numeric'}) : 'N/A'}</p>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    {/* Desktop Table Layout */}
+                    <div className="mt-6 bg-gray-800 p-6 rounded-lg shadow-lg hidden md:block">
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left">
+                                <thead>
+                                    <tr className="border-b border-gray-700 text-xs text-gray-500 uppercase tracking-wider">
+                                        <th className="p-4">Customer</th>
+                                        <th className="p-4">Phone</th>
+                                        <th className="p-4 text-center">Points</th>
+                                        <th className="p-4 text-center">Orders</th>
+                                        <th className="p-4 text-right">Total Spend</th>
+                                        <th className="p-4 text-right">Last Order</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {filteredCustomers.map(user => {
+                                        const stats = orderStats[user.id] || { totalOrders: 0, totalSpend: 0, lastOrder: null };
+                                        return (
+                                            <tr key={user.id} className="border-b border-gray-700/50 hover:bg-gray-700/30 transition-colors">
+                                                <td className="p-4">
+                                                    <p className="font-semibold text-gray-200">{user.username || 'No username'}</p>
+                                                    <p className="text-xs text-gray-500">{user.email}</p>
+                                                </td>
+                                                <td className="p-4 text-gray-400 text-sm">{user.mobile || 'N/A'}</td>
+                                                <td className="p-4 text-center">
+                                                    <span className="px-2 py-1 text-xs font-bold rounded-full bg-amber-900/40 text-amber-300">
+                                                        {user.points || 0}
+                                                    </span>
+                                                </td>
+                                                <td className="p-4 text-center font-bold text-gray-300">{stats.totalOrders}</td>
+                                                <td className="p-4 text-right font-bold text-green-400">₹{stats.totalSpend.toFixed(0)}</td>
+                                                <td className="p-4 text-right text-sm text-gray-400">
+                                                    {stats.lastOrder ? stats.lastOrder.toLocaleDateString('en-IN', {day:'numeric', month:'short', year:'numeric'}) : 'Never'}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </>
+            )}
         </div>
     );
 };
 
-// --- All Orders View (Updated) ---
+// --- All Orders View (With Search, Status & Date Filters) ---
 const AllOrdersView = () => {
     const [orders, setOrders] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
-    const [selectedOrder, setSelectedOrder] = useState(null); // Modal State
+    const [selectedOrder, setSelectedOrder] = useState(null);
+    const [searchTerm, setSearchTerm] = useState('');
+    const [statusFilter, setStatusFilter] = useState('all');
+    const [dateRange, setDateRange] = useState('all'); // 'today', '7d', '30d', 'all'
 
     useEffect(() => {
         const q = query(collection(db, "orders"), orderBy("createdAt", "desc"));
         const unsubscribe = onSnapshot(q, (snapshot) => {
-            const allOrders = snapshot.docs.map(doc => ({ 
-                id: doc.id, 
-                ...doc.data(),
-                createdAt: doc.data().createdAt?.toDate().toLocaleString()
-            }));
+            const allOrders = snapshot.docs.map(doc => {
+                const data = doc.data();
+                const rawDate = data.createdAt?.toDate();
+                return { 
+                    id: doc.id, 
+                    ...data,
+                    rawDate,
+                    createdAt: rawDate?.toLocaleString() || 'N/A'
+                };
+            });
             setOrders(allOrders);
             setIsLoading(false);
         });
@@ -2044,29 +2197,120 @@ const AllOrdersView = () => {
         completed: 'bg-gray-700 text-gray-300',
         declined: 'bg-red-900 text-red-300',
         payment_failed: 'bg-red-900 text-red-300',
+        awaiting_payment: 'bg-purple-900 text-purple-300',
     };
+
+    const filteredOrders = orders.filter(order => {
+        // Search filter
+        if (searchTerm) {
+            const term = searchTerm.toLowerCase();
+            const matchesSearch = (
+                (order.restaurantName || '').toLowerCase().includes(term) ||
+                (order.userEmail || '').toLowerCase().includes(term) ||
+                (order.userName || '').toLowerCase().includes(term) ||
+                order.id.toLowerCase().includes(term)
+            );
+            if (!matchesSearch) return false;
+        }
+
+        // Status filter
+        if (statusFilter !== 'all' && order.status !== statusFilter) return false;
+
+        // Date filter
+        if (dateRange !== 'all' && order.rawDate) {
+            const now = new Date();
+            const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            if (dateRange === 'today' && order.rawDate < startOfToday) return false;
+            if (dateRange === '7d') {
+                const d7 = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+                if (order.rawDate < d7) return false;
+            }
+            if (dateRange === '30d') {
+                const d30 = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+                if (order.rawDate < d30) return false;
+            }
+        }
+
+        return true;
+    });
 
     return (
         <div>
-            {/* Modal Injection */}
             <AdminOrderDetailsModal 
                 isOpen={!!selectedOrder} 
                 onClose={() => setSelectedOrder(null)} 
                 order={selectedOrder} 
             />
 
-            <h1 className="text-2xl md:text-3xl font-bold text-gray-100">All Orders</h1>
-            <p className="text-gray-400 mt-1 text-sm md:text-base">A live feed of all orders across the platform.</p>
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                <div>
+                    <h1 className="text-2xl md:text-3xl font-bold text-gray-100">All Orders</h1>
+                    <p className="text-gray-400 mt-1 text-sm">
+                        {isLoading ? 'Loading...' : `${filteredOrders.length} of ${orders.length} orders`}
+                    </p>
+                </div>
+            </div>
+
+            {/* Search & Filter Bar */}
+            <div className="mt-4 flex flex-col sm:flex-row gap-3">
+                <div className="relative flex-1">
+                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+                    <input
+                        type="text"
+                        placeholder="Search by restaurant, customer email, or order ID..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        className="w-full pl-9 pr-4 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-gray-200 focus:outline-none focus:border-green-500 placeholder-gray-500"
+                    />
+                </div>
+                <select
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                    className="px-3 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-gray-300 focus:outline-none focus:border-green-500"
+                >
+                    <option value="all">All Statuses</option>
+                    <option value="pending">Pending</option>
+                    <option value="accepted">Accepted</option>
+                    <option value="preparing">Preparing</option>
+                    <option value="ready">Ready</option>
+                    <option value="completed">Completed</option>
+                    <option value="declined">Declined</option>
+                    <option value="payment_failed">Payment Failed</option>
+                </select>
+                <select
+                    value={dateRange}
+                    onChange={(e) => setDateRange(e.target.value)}
+                    className="px-3 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-gray-300 focus:outline-none focus:border-green-500"
+                >
+                    <option value="all">All Time</option>
+                    <option value="today">Today</option>
+                    <option value="7d">Last 7 Days</option>
+                    <option value="30d">Last 30 Days</option>
+                </select>
+            </div>
 
             {isLoading ? (
                 <div className="mt-8 flex items-center justify-center gap-2 text-gray-400 py-12">
                     <Loader2 className="animate-spin" size={20} /> Loading orders...
                 </div>
+            ) : filteredOrders.length === 0 ? (
+                <div className="mt-8 bg-gray-800 rounded-xl p-12 text-center">
+                    <ShoppingBag size={40} className="mx-auto text-gray-600 mb-3" />
+                    <p className="text-gray-500">No orders found matching your filters</p>
+                    {(searchTerm || statusFilter !== 'all' || dateRange !== 'all') && (
+                        <button 
+                            onClick={() => { setSearchTerm(''); setStatusFilter('all'); setDateRange('all'); }}
+                            className="mt-3 text-sm text-green-400 font-bold hover:underline"
+                        >
+                            Clear all filters
+                        </button>
+                    )}
+                </div>
             ) : (
                 <>
-                    {/* --- Mobile Card Layout (visible below md) --- */}
+                    {/* Mobile Card Layout */}
                     <div className="mt-4 space-y-3 md:hidden">
-                        {orders.map(order => (
+                        {filteredOrders.map(order => (
                             <div key={order.id} 
                                  className="bg-gray-800 rounded-xl p-4 border border-gray-700 active:bg-gray-700/50 transition-colors"
                                  onClick={() => setSelectedOrder(order)}
@@ -2081,7 +2325,7 @@ const AllOrdersView = () => {
                                     </span>
                                 </div>
                                 <div className="flex justify-between items-center pt-2 border-t border-gray-700/50">
-                                    <span className="text-green-400 font-bold text-base">₹{order.total.toFixed(2)}</span>
+                                    <span className="text-green-400 font-bold text-base">₹{order.total?.toFixed(2) || '0'}</span>
                                     <div className="flex items-center gap-3">
                                         <span className="text-[11px] text-gray-500">{order.createdAt}</span>
                                         <Eye size={16} className="text-blue-400 flex-shrink-0" />
@@ -2091,32 +2335,32 @@ const AllOrdersView = () => {
                         ))}
                     </div>
 
-                    {/* --- Desktop Table Layout (visible at md and above) --- */}
-                    <div className="mt-8 bg-gray-800 p-6 rounded-lg shadow-lg hidden md:block">
+                    {/* Desktop Table Layout */}
+                    <div className="mt-6 bg-gray-800 p-6 rounded-lg shadow-lg hidden md:block">
                         <div className="overflow-x-auto">
                             <table className="w-full text-left">
                                 <thead>
-                                    <tr className="border-b border-gray-700">
+                                    <tr className="border-b border-gray-700 text-xs text-gray-500 uppercase tracking-wider">
                                         <th className="p-4">Date</th>
                                         <th className="p-4">Restaurant</th>
-                                        <th className="p-4">Customer ID / Email</th>
+                                        <th className="p-4">Customer</th>
                                         <th className="p-4">Total</th>
                                         <th className="p-4">Status</th>
                                         <th className="p-4">View</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {orders.map(order => (
-                                        <tr key={order.id} className="border-b border-gray-700 hover:bg-gray-700/50">
+                                    {filteredOrders.map(order => (
+                                        <tr key={order.id} className="border-b border-gray-700/50 hover:bg-gray-700/30 transition-colors">
                                             <td className="p-4 text-gray-400 text-sm">{order.createdAt}</td>
-                                            <td className="p-4 font-medium">{order.restaurantName}</td>
+                                            <td className="p-4 font-medium text-gray-200">{order.restaurantName}</td>
                                             <td className="p-4 text-gray-400">
                                                 <div className="flex flex-col">
-                                                    <span className="text-xs text-gray-500 uppercase">ID: {order.userId.slice(0,6)}...</span>
-                                                    <span>{order.userEmail}</span>
+                                                    <span className="text-sm">{order.userEmail}</span>
+                                                    <span className="text-[10px] text-gray-600 font-mono">#{order.id.slice(-8)}</span>
                                                 </div>
                                             </td>
-                                            <td className="p-4 font-medium text-green-400">₹{order.total.toFixed(2)}</td>
+                                            <td className="p-4 font-bold text-green-400">₹{order.total?.toFixed(2) || '0'}</td>
                                             <td className="p-4">
                                                 <span className={`px-2 py-1 text-xs font-bold rounded-full capitalize ${statusColors[order.status] || 'bg-gray-700 text-gray-300'}`}>
                                                     {order.status?.replace('_', ' ') || 'N/A'}
@@ -2427,6 +2671,229 @@ const MessagesView = () => {
 };
 
 
+
+// --- Broadcast Notifications View ---
+const BroadcastView = () => {
+    const [title, setTitle] = useState('');
+    const [body, setBody] = useState('');
+    const [isSending, setIsSending] = useState(false);
+    const [sendResult, setSendResult] = useState(null); // { success: N, failed: N }
+    const [broadcasts, setBroadcasts] = useState([]);
+    const [userCount, setUserCount] = useState(0);
+    const [isLoadingHistory, setIsLoadingHistory] = useState(true);
+
+    // Fetch broadcast history
+    useEffect(() => {
+        const q = query(collection(db, "broadcasts"), orderBy("sentAt", "desc"), limit(20));
+        const unsub = onSnapshot(q, (snapshot) => {
+            setBroadcasts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+            setIsLoadingHistory(false);
+        });
+        return () => unsub();
+    }, []);
+
+    // Count users with FCM tokens
+    useEffect(() => {
+        const q = query(collection(db, "users"), where("fcmToken", "!=", ""));
+        const unsub = onSnapshot(q, (snapshot) => {
+            setUserCount(snapshot.docs.length);
+        });
+        return () => unsub();
+    }, []);
+
+    const handleSend = async () => {
+        if (!title.trim() || !body.trim()) return;
+        if (!window.confirm(`Send this notification to ${userCount} users?\n\nTitle: ${title}\nMessage: ${body}`)) return;
+
+        setIsSending(true);
+        setSendResult(null);
+
+        try {
+            // 1. Fetch all users with FCM tokens
+            const usersSnapshot = await getDocs(query(collection(db, "users"), where("fcmToken", "!=", "")));
+            const tokens = [];
+            usersSnapshot.docs.forEach(doc => {
+                const token = doc.data().fcmToken;
+                if (token) tokens.push(token);
+            });
+
+            // 2. Send notifications via FCM legacy API
+            let success = 0;
+            let failed = 0;
+            const API_KEY = 'AIzaSyDDFCPcfBKcvrkjqidsXstHqe8Og_3u36k';
+
+            // Send in batches of 10 to avoid rate limits
+            for (let i = 0; i < tokens.length; i += 10) {
+                const batch = tokens.slice(i, i + 10);
+                // eslint-disable-next-line no-loop-func
+                const results = await Promise.allSettled(
+                    batch.map(token =>
+                        fetch('https://fcm.googleapis.com/fcm/send', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `key=${API_KEY}`
+                            },
+                            body: JSON.stringify({
+                                to: token,
+                                notification: { title: title.trim(), body: body.trim() },
+                                webpush: { notification: { icon: '/logo192.png' } }
+                            })
+                        }).then(res => res.ok ? 'ok' : 'fail')
+                    )
+                );
+                const batchSuccess = results.filter(r => r.status === 'fulfilled' && r.value === 'ok').length;
+                success += batchSuccess;
+                failed += (results.length - batchSuccess);
+            }
+
+            // 3. Log the broadcast to Firestore
+            await addDoc(collection(db, "broadcasts"), {
+                title: title.trim(),
+                body: body.trim(),
+                sentAt: serverTimestamp(),
+                sentBy: auth.currentUser?.email || 'admin',
+                recipientCount: success,
+                failedCount: failed
+            });
+
+            setSendResult({ success, failed });
+            setTitle('');
+            setBody('');
+        } catch (error) {
+            console.error('Broadcast error:', error);
+            setSendResult({ success: 0, failed: -1, error: error.message });
+        } finally {
+            setIsSending(false);
+        }
+    };
+
+    return (
+        <div>
+            <h1 className="text-2xl md:text-3xl font-bold text-gray-100">Broadcast Notifications</h1>
+            <p className="text-gray-400 mt-1 text-sm">Send push notifications to all users with the app installed.</p>
+            
+            {/* Compose Card */}
+            <div className="mt-6 bg-gray-800 rounded-xl p-6 border border-gray-700">
+                <div className="flex items-center gap-2 mb-4">
+                    <Bell size={20} className="text-green-400" />
+                    <h2 className="text-lg font-bold text-gray-200">Compose Notification</h2>
+                    <span className="ml-auto px-3 py-1 text-xs font-bold rounded-full bg-blue-900/50 text-blue-300">
+                        {userCount} reachable users
+                    </span>
+                </div>
+
+                <div className="space-y-4">
+                    <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Title</label>
+                        <input
+                            type="text"
+                            value={title}
+                            onChange={(e) => setTitle(e.target.value)}
+                            placeholder="e.g. New Restaurant Alert! 🎉"
+                            maxLength={60}
+                            className="w-full px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:border-green-500 placeholder-gray-600"
+                        />
+                        <p className="text-right text-[10px] text-gray-600 mt-1">{title.length}/60</p>
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Message</label>
+                        <textarea
+                            value={body}
+                            onChange={(e) => setBody(e.target.value)}
+                            placeholder="e.g. Check out our newest partner on campus — order now for 20% off!"
+                            maxLength={200}
+                            rows={3}
+                            className="w-full px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg text-gray-200 focus:outline-none focus:border-green-500 placeholder-gray-600 resize-none"
+                        />
+                        <p className="text-right text-[10px] text-gray-600 mt-1">{body.length}/200</p>
+                    </div>
+
+                    {/* Preview */}
+                    {(title || body) && (
+                        <div className="bg-gray-900/50 rounded-lg p-4 border border-gray-700/50">
+                            <p className="text-[10px] text-gray-600 uppercase tracking-wider mb-2">Preview</p>
+                            <div className="flex gap-3 items-start">
+                                <div className="w-8 h-8 rounded-lg bg-green-600 flex items-center justify-center flex-shrink-0">
+                                    <Bell size={14} className="text-white" />
+                                </div>
+                                <div>
+                                    <p className="text-sm font-bold text-gray-200">{title || 'Notification Title'}</p>
+                                    <p className="text-xs text-gray-400 mt-0.5">{body || 'Notification message...'}</p>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    <button
+                        onClick={handleSend}
+                        disabled={isSending || !title.trim() || !body.trim()}
+                        className={`w-full flex items-center justify-center gap-2 py-3 rounded-lg font-bold transition-all ${
+                            isSending || !title.trim() || !body.trim()
+                                ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                                : 'bg-green-600 text-white hover:bg-green-700 shadow-lg shadow-green-600/20'
+                        }`}
+                    >
+                        {isSending ? (
+                            <><Loader2 size={18} className="animate-spin" /> Sending to {userCount} users...</>
+                        ) : (
+                            <><Send size={18} /> Send to {userCount} Users</>
+                        )}
+                    </button>
+
+                    {/* Result */}
+                    {sendResult && (
+                        <div className={`p-4 rounded-lg border ${sendResult.failed === -1 ? 'bg-red-900/30 border-red-800 text-red-300' : 'bg-green-900/30 border-green-800 text-green-300'}`}>
+                            {sendResult.failed === -1 ? (
+                                <p className="text-sm font-medium">❌ Error: {sendResult.error}</p>
+                            ) : (
+                                <p className="text-sm font-medium">
+                                    ✅ Sent to {sendResult.success} users{sendResult.failed > 0 ? ` (${sendResult.failed} failed)` : ''}
+                                </p>
+                            )}
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            {/* Broadcast History */}
+            <div className="mt-8">
+                <h2 className="text-lg font-bold text-gray-300 mb-4">Recent Broadcasts</h2>
+                {isLoadingHistory ? (
+                    <div className="flex items-center gap-2 text-gray-500 py-4">
+                        <Loader2 size={16} className="animate-spin" /> Loading history...
+                    </div>
+                ) : broadcasts.length === 0 ? (
+                    <div className="bg-gray-800 rounded-xl p-8 text-center border border-gray-700">
+                        <Bell size={32} className="mx-auto text-gray-600 mb-2" />
+                        <p className="text-gray-500 text-sm">No broadcasts sent yet.</p>
+                    </div>
+                ) : (
+                    <div className="space-y-3">
+                        {broadcasts.map(b => (
+                            <div key={b.id} className="bg-gray-800 rounded-xl p-4 border border-gray-700">
+                                <div className="flex justify-between items-start">
+                                    <div>
+                                        <p className="font-bold text-gray-200 text-sm">{b.title}</p>
+                                        <p className="text-gray-400 text-xs mt-1">{b.body}</p>
+                                    </div>
+                                    <span className="px-2 py-1 text-[10px] font-bold rounded-full bg-green-900/40 text-green-400 whitespace-nowrap">
+                                        {b.recipientCount} sent
+                                    </span>
+                                </div>
+                                <div className="flex gap-4 mt-2 text-[10px] text-gray-600">
+                                    <span>By {b.sentBy}</span>
+                                    <span>{b.sentAt?.toDate ? b.sentAt.toDate().toLocaleString() : 'N/A'}</span>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
 // --- Main App Component ---
 const App = () => {
     const [user, setUser] = useState(null);
@@ -2473,6 +2940,7 @@ const App = () => {
         { id: 'messages', label: 'Inbox', icon: <Inbox size={20}/> },
         { id: 'burn', label: 'Burn Rate', icon: <DollarSign size={20}/> },
         { id: 'points', label: 'Points', icon: <Gift size={20}/> },
+        { id: 'broadcast', label: 'Broadcast', icon: <Bell size={20}/> },
     ];
 
     const renderView = () => {
@@ -2488,6 +2956,7 @@ const App = () => {
             case 'burn': return <BurnRateView />;
             case 'points': return <PointsManagerView />;
             case 'cashRequests': return <AdminCashProcessor />;
+            case 'broadcast': return <BroadcastView />;
             default: return <DashboardView />;
         }
     };
