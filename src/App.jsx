@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react'; // Removed useMemo (unused)
-import { 
-    BarChart2, Store, Users, LogOut, Loader2, 
-    CheckSquare, XSquare, ShoppingBag, Tag, PlusCircle, 
+import {
+    BarChart2, Store, Users, LogOut, Loader2,
+    CheckSquare, XSquare, ShoppingBag, Tag, PlusCircle,
     ToggleLeft, ToggleRight, Eye, FileText,
     DollarSign, ChevronRight, Download, Inbox, Clock, Gift, Search, Phone, Trash2,
-    Bell, Send
+    Bell, Send, Zap
 } from 'lucide-react';
 import { initializeApp } from "firebase/app";
 import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "firebase/auth";
@@ -634,7 +634,9 @@ const AdminOrderDetailsModal = ({ isOpen, onClose, order }) => {
 
     if (!isOpen || !order) return null;
 
-    const couponVal = (order.subtotal - order.total) - (order.pointsValue || 0);
+    // Fix: subtract expressFee from total before computing coupon value, since
+    // total = subtotal + expressFee - discounts, so discount = subtotal - (total - expressFee)
+    const couponVal = (order.subtotal - (order.total - (order.expressFee || 0))) - (order.pointsValue || 0);
     const finalCouponValue = Math.max(0, couponVal);
 
     return (
@@ -701,7 +703,16 @@ const AdminOrderDetailsModal = ({ isOpen, onClose, order }) => {
                             {order.items.map((item, idx) => (
                                 <div key={idx} className="flex justify-between items-start border-b border-gray-700 pb-3 last:border-0">
                                     <div>
-                                        <p className="font-semibold text-gray-200">{item.quantity} x {item.name}</p>
+                                        <p className="font-semibold text-gray-200 flex items-center gap-1.5 flex-wrap">
+                                            {item.quantity} x {item.name}
+                                            {item.isExpress && (
+                                                <span className="inline-flex items-center gap-0.5 text-[9px] font-black px-1.5 py-0.5 rounded tracking-widest"
+                                                      style={{ background: '#1A1A2E', border: '1px solid #FFD700', color: '#FFD700' }}>
+                                                    <Zap size={7} fill="#FFD700" style={{ color: '#FFD700' }} />
+                                                    EXPRESS
+                                                </span>
+                                            )}
+                                        </p>
                                         <p className="text-xs text-gray-500">{item.size} {item.addons && item.addons.length > 0 && `+ ${item.addons.join(', ')}`}</p>
                                     </div>
                                     <p className="font-medium text-gray-300">₹{item.price.toFixed(2)}</p>
@@ -718,6 +729,21 @@ const AdminOrderDetailsModal = ({ isOpen, onClose, order }) => {
                             <span>Subtotal (Menu Value)</span>
                             <span className="font-medium">₹{order.subtotal?.toFixed(2) || order.total.toFixed(2)}</span>
                         </div>
+
+                        {/* Express Fee Row */}
+                        {(order.expressFee > 0) && (
+                            <div className="flex justify-between text-sm mb-2 font-semibold" style={{ color: '#FFD700' }}>
+                                <span className="flex items-center gap-1.5">
+                                    <Zap size={12} fill="#FFD700" style={{ color: '#FFD700' }} />
+                                    Express Fee
+                                    <span className="text-[9px] font-black px-1 py-0.5 rounded tracking-widest"
+                                          style={{ background: '#1A1A2E', color: '#FFD700', border: '1px solid #FFD700' }}>
+                                        EXPRESS
+                                    </span>
+                                </span>
+                                <span>+₹{order.expressFee.toFixed(2)}</span>
+                            </div>
+                        )}
 
                         {/* Coupon Row */}
                         {finalCouponValue > 0 && (
@@ -1387,11 +1413,12 @@ const PayoutsView = () => {
                 .sort((a, b) => b.createdAt - a.createdAt);
 
             // --- CALCULATE FINANCIALS ---
-            let totalMenuValue = 0;    
-            let totalCustomerPaid = 0; 
-            let totalMDRFee = 0;       
+            let totalMenuValue = 0;
+            let totalCustomerPaid = 0;
+            let totalMDRFee = 0;
             let totalNetPayout = 0;
-            let totalDiscountsGiven = 0; 
+            let totalDiscountsGiven = 0;
+            let totalExpressFees = 0; 
 
             // USE DATABASE VALUE: If waiveFee is true, rate is 0. Else 2.301%.
             const isWaived = restaurantData.waiveFee === true; 
@@ -1412,11 +1439,13 @@ const PayoutsView = () => {
                 // For Online: We pay menu value minus MDR fee
                 const netPayout = isCodOrder ? discount : (menuValue - mdrFee);
 
+                const orderExpressFee = order.expressFee || 0;
                 totalMenuValue += menuValue;
                 totalCustomerPaid += custPaid;
                 totalMDRFee += mdrFee;
                 totalNetPayout += netPayout;
                 totalDiscountsGiven += discount;
+                totalExpressFees += orderExpressFee;
 
                 return { ...order, mdrFee, netPayout, totalDiscount: discount, isCodOrder };
             });
@@ -1425,7 +1454,7 @@ const PayoutsView = () => {
                 orders: detailedOrders,
                 summary: {
                     totalMenuValue, totalCustomerPaid, totalMDRFee, totalNetPayout,
-                    totalDiscountsGiven, orderCount: detailedOrders.length, appliedRate: APPLIED_RATE
+                    totalDiscountsGiven, totalExpressFees, orderCount: detailedOrders.length, appliedRate: APPLIED_RATE
                 }
             });
 
@@ -1454,6 +1483,7 @@ const PayoutsView = () => {
             ["Metric", "Amount (INR)"],
             ["Total Sales (Gross)", summary.totalMenuValue.toFixed(2)],
             ["Customer Paid", summary.totalCustomerPaid.toFixed(2)],
+            ["Express Fees (Platform Revenue)", (summary.totalExpressFees || 0).toFixed(2)],
             ["Less: MDR Fee", "-" + summary.totalMDRFee.toFixed(2)],
             ["NET SETTLEMENT", summary.totalNetPayout.toFixed(2)],
             [],
@@ -1461,7 +1491,7 @@ const PayoutsView = () => {
         ];
 
         // 2. Headers
-        const tableHeaders = ["Date", "Order ID", "Menu Price", "Cust Paid", "Total Discount", "MDR Fee", "Net Payout"];
+        const tableHeaders = ["Date", "Order ID", "Menu Price", "Cust Paid", "Express Fee", "Total Discount", "MDR Fee", "Net Payout"];
 
         // 3. Rows
         const orderRows = reportData.orders.map(order => [
@@ -1469,6 +1499,7 @@ const PayoutsView = () => {
             order.id,
             order.subtotal.toFixed(2),
             order.total.toFixed(2),
+            (order.expressFee || 0).toFixed(2),
             order.totalDiscount.toFixed(2),
             order.mdrFee.toFixed(2),
             order.netPayout.toFixed(2)
@@ -1587,7 +1618,7 @@ const PayoutsView = () => {
                                 <div className="flex-1 overflow-y-auto p-6">
                                     
                                     {/* 1. Summary Cards */}
-                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                                    <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
                                         <div className="bg-gray-700/50 p-4 rounded-xl border border-gray-600">
                                             <p className="text-xs text-gray-400 uppercase font-bold">Total Sales</p>
                                             <p className="text-2xl font-bold text-white mt-1">₹{reportData.summary.totalMenuValue.toFixed(2)}</p>
@@ -1595,6 +1626,15 @@ const PayoutsView = () => {
                                         <div className="bg-gray-700/50 p-4 rounded-xl border border-gray-600">
                                             <p className="text-xs text-gray-400 uppercase font-bold">Customer Paid</p>
                                             <p className="text-2xl font-bold text-blue-400 mt-1">₹{reportData.summary.totalCustomerPaid.toFixed(2)}</p>
+                                        </div>
+
+                                        {/* Express Fees — Platform Revenue */}
+                                        <div className="p-4 rounded-xl border" style={{ background: 'rgba(255,215,0,0.06)', borderColor: 'rgba(255,215,0,0.25)' }}>
+                                            <p className="text-xs uppercase font-bold flex items-center gap-1" style={{ color: '#FFD700' }}>
+                                                <Zap size={10} fill="#FFD700" style={{ color: '#FFD700' }} /> Express Fees
+                                            </p>
+                                            <p className="text-2xl font-bold mt-1" style={{ color: '#FFD700' }}>₹{(reportData.summary.totalExpressFees || 0).toFixed(2)}</p>
+                                            <p className="text-[10px] mt-1 text-gray-500">Platform revenue</p>
                                         </div>
                                         
                                         {/* Dynamic Fee Card */}
@@ -2325,7 +2365,10 @@ const AllOrdersView = () => {
                                     </span>
                                 </div>
                                 <div className="flex justify-between items-center pt-2 border-t border-gray-700/50">
-                                    <span className="text-green-400 font-bold text-base">₹{order.total?.toFixed(2) || '0'}</span>
+                                    <span className="text-green-400 font-bold text-base flex items-center gap-1">
+                                        ₹{order.total?.toFixed(2) || '0'}
+                                        {order.expressFee > 0 && <Zap size={10} fill="#FFD700" style={{ color: '#FFD700' }} />}
+                                    </span>
                                     <div className="flex items-center gap-3">
                                         <span className="text-[11px] text-gray-500">{order.createdAt}</span>
                                         <Eye size={16} className="text-blue-400 flex-shrink-0" />
@@ -2360,7 +2403,12 @@ const AllOrdersView = () => {
                                                     <span className="text-[10px] text-gray-600 font-mono">#{order.id.slice(-8)}</span>
                                                 </div>
                                             </td>
-                                            <td className="p-4 font-bold text-green-400">₹{order.total?.toFixed(2) || '0'}</td>
+                                            <td className="p-4 font-bold text-green-400">
+                                                <span className="flex items-center gap-1">
+                                                    ₹{order.total?.toFixed(2) || '0'}
+                                                    {order.expressFee > 0 && <Zap size={10} fill="#FFD700" style={{ color: '#FFD700' }} />}
+                                                </span>
+                                            </td>
                                             <td className="p-4">
                                                 <span className={`px-2 py-1 text-xs font-bold rounded-full capitalize ${statusColors[order.status] || 'bg-gray-700 text-gray-300'}`}>
                                                     {order.status?.replace('_', ' ') || 'N/A'}
